@@ -1,0 +1,11 @@
+<tr>
+    <td scope="row">{RELAY_KEY}</td>
+    <td>{RELAY_CHANNEL}</td>
+    <td><input type="number" step="1" name="{RELAY_KEY}_gpio_pin" id="{RELAY_KEY}_gpio_pin" value="{RELAY_GPIO_PIN}" min="{MIN_RELAY_GPIO_PIN}" max="{MAX_RELAY_GPIO_PIN}"></td>
+    <td><input type="checkbox" name="{RELAY_KEY}_inverted" id="{RELAY_KEY}_inverted" {RELAY_INVERTED}></td>
+    <td><input type="checkbox" name="{RELAY_KEY}_enabled" id="{RELAY_KEY}_enabled" {RELAY_ENABLED}></td>
+    <td>
+        <button onclick="updateRelay('{VAL_DEVICE_SERIAL}', '{RELAY_KEY}', {RELAY_CHANNEL}, '{RELAY_KEY}_gpio_pin', '{RELAY_KEY}_enabled', '{RELAY_KEY}_inverted')">Update</button>
+        <span id="status_{RELAY_CHANNEL}"></span>
+    </td>
+</tr>
