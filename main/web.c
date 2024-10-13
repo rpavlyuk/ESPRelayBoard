@@ -11,7 +11,7 @@
 #include "settings.h"
 #include "relay.h"
 #include "web.h"
-// #include "status.h"
+#include "status.h"
 // #include "hass.h"
 #include "mqtt.h"
 #include "wifi.h"
@@ -26,6 +26,7 @@ void run_http_server(void *param) {
 
     static httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 16;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -87,7 +88,7 @@ void run_http_server(void *param) {
 
         // Register the /update-relay POST handler
         httpd_uri_t update_relay_uri = {
-            .uri      = "/update-relay",   
+            .uri      = "/api/relay/update",   
             .method   = HTTP_POST,         // Only accept POST requests
             .handler  = update_relay_post_handler, // Handler function
             .user_ctx = NULL              
@@ -95,7 +96,6 @@ void run_http_server(void *param) {
 
         httpd_register_uri_handler(server, &update_relay_uri);  
 
-        /* 
         httpd_uri_t status_uri = {
             .uri       = "/status",
             .method    = HTTP_GET,
@@ -103,27 +103,34 @@ void run_http_server(void *param) {
             .user_ctx  = NULL
         };
         httpd_register_uri_handler(server, &status_uri);
-
+       
         // Register the status web service handler
         httpd_uri_t status_webserver_get_uri = {
-            .uri       = "/status-data",
+            .uri       = "/api/status",
             .method    = HTTP_GET,
             .handler   = status_data_handler,
             .user_ctx  = NULL
         };
         httpd_register_uri_handler(server, &status_webserver_get_uri);
-        */
+
+        // Register the relays data web service handler
+        httpd_uri_t relays_data = {
+            .uri      = "/api/relays",           
+            .method   = HTTP_GET,                
+            .handler  = relays_data_get_handler, 
+            .user_ctx = NULL                     
+        };
+        httpd_register_uri_handler(server, &relays_data);
+        
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
         ESP_LOGI(TAG, "Error starting server!");
         return;
     }
 
-    while (server)
-    {
+    while(server) {
         vTaskDelay(5);
-    }
-    
+    }  
 }
 
 // Helper function to fill in the static variables in the template
@@ -748,6 +755,9 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
     char *relays_list_html = (char *)malloc(MAX_TEMPLATE_SIZE); // to hold the relays list
     relays_list_html[0] = '\0';  // Initialize with empty string
+    char safe_pins[128];       // Buffer to hold the safe GPIO pins list
+    // Populate the safe GPIO pins as a comma-separated list
+    populate_safe_gpio_pins(safe_pins, sizeof(safe_pins));
 
     char *relay_table_header = (char *)malloc(MAX_TBL_ENTRY_SIZE);
     char *relay_table_entry_tpl = (char *)malloc(MAX_TBL_ENTRY_SIZE);
@@ -893,9 +903,75 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{RELAYS_TABLE_HEADER}", relay_table_header);
     replace_placeholder(html_output, "{RELAYS_TABLE_BODY}", relays_list_html);
 
+
+    // Now, fill in the sensors
+    relays_list_html[0] = '\0';  // Initialize with empty string
+
+    // now, let's iterate via all relays stored in the memory and try load/initiate them
+    for (int i_channel = 0; i_channel < relay_sn_count; i_channel++) {
+        relay_unit_t *relay = malloc(sizeof(relay_unit_t));
+        if (relay == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for relay entry object");
+            return ESP_FAIL; // Handle error accordingly
+        }
+
+        char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
+        if (relay_nvs_key == NULL) {
+            ESP_LOGE(TAG, "Failed to get NVS key for contact sensor at channel %d", i_channel);
+            free(relay);
+            return ESP_FAIL; // Handle error accordingly
+        }
+
+        if (load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Found sensor channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+
+            // Step 1: Copy string relay_table_entry_tpl to relay_table_entry
+            strcpy(relay_table_entry, relay_table_entry_tpl);
+
+            // Step 2: Substitute entries using replace_placeholder()
+            char channel_str[5], gpio_pin_str[5];
+            snprintf(channel_str, sizeof(channel_str), "%d", relay->channel);
+            snprintf(gpio_pin_str, sizeof(gpio_pin_str), "%d", relay->gpio_pin);
+
+            replace_placeholder(relay_table_entry, "{RELAY_KEY}", relay_nvs_key);
+            replace_placeholder(relay_table_entry, "{RELAY_CHANNEL}", channel_str);
+            replace_placeholder(relay_table_entry, "{RELAY_GPIO_PIN}", gpio_pin_str);
+
+            // Handle RELAY_INVERTED: Checkbox checked if inverted is true
+            if (relay->inverted) {
+                replace_placeholder(relay_table_entry, "{RELAY_INVERTED}", "checked");
+            } else {
+                replace_placeholder(relay_table_entry, "{RELAY_INVERTED}", "");
+            }
+
+            // Handle RELAY_ENABLED: Checkbox checked if enabled is true
+            if (relay->enabled) {
+                replace_placeholder(relay_table_entry, "{RELAY_ENABLED}", "checked");
+            } else {
+                replace_placeholder(relay_table_entry, "{RELAY_ENABLED}", "");
+            }
+
+            // Step 3: Append relay_table_entry to relays_list_html
+            strcat(relays_list_html, relay_table_entry);
+
+            // Step 4: Clear relay_table_entry for next iteration
+            relay_table_entry[0] = '\0';
+        } else {
+            ESP_LOGW(TAG, "Unable to find sensor contact channel %i stored in NVS at %s. Entry skipped.", i_channel, relay_nvs_key);
+        }
+
+        free(relay_nvs_key);
+        free(relay);
+    }  
+
+    // Insert the relays list into the main HTML template
+    replace_placeholder(html_output, "{CONTACT_SENSORS_TABLE_HEADER}", relay_table_header);
+    replace_placeholder(html_output, "{CONTACT_SENSORS_TABLE_BODY}", relays_list_html); 
+
     // Insert other placeholders (device ID, serial, etc.)
     replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
     replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
+    replace_placeholder(html_output, "{VAL_GPIO_SAFE_PINS}", safe_pins);
 
     // replace static fields
     assign_static_page_variables(html_output);
@@ -963,16 +1039,34 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // Extract and validate the mandatory fields: device_serial and relay_channel
-    const char *device_serial = cJSON_GetObjectItem(data, "device_serial")->valuestring;
-    cJSON *relay_channel_item = cJSON_GetObjectItem(data, "relay_channel");
-    if (device_serial == NULL || !cJSON_IsNumber(relay_channel_item)) {
-        ESP_LOGE(TAG, "Missing mandatory fields: device_serial or relay_channel");
+    // Extract and validate the mandatory fields: device_serial and relay_key
+    // Safely retrieve 'device_serial' from JSON
+    cJSON *device_serial_item = cJSON_GetObjectItem(data, "device_serial");
+    if (device_serial_item == NULL || !cJSON_IsString(device_serial_item)) {
+        ESP_LOGE(TAG, "Missing or invalid 'device_serial' in JSON data");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid 'device_serial'");
+        cJSON_Delete(json);  // Don't forget to free the cJSON object
+        return ESP_FAIL;
+    }
+    const char *device_serial = device_serial_item->valuestring;
+
+    // Safely retrieve 'relay_key' from JSON
+    cJSON *relay_key_item = cJSON_GetObjectItem(data, "relay_key");
+    if (relay_key_item == NULL || !cJSON_IsString(relay_key_item)) {
+        ESP_LOGE(TAG, "Invalid or missing 'relay_key' in the JSON data");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid 'relay_key'");
+        cJSON_Delete(json);
+        return ESP_FAIL;
+    }
+
+    const char *relay_key = relay_key_item->valuestring;
+
+    if (device_serial == NULL || relay_key == NULL) {
+        ESP_LOGE(TAG, "Missing mandatory fields: device_serial or relay_key");
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing mandatory fields");
         cJSON_Delete(json);
         return ESP_FAIL;
     }
-    int relay_channel = relay_channel_item->valueint;
 
     // Validate device serial from NVS
     char *device_serial_nvs = NULL;
@@ -993,21 +1087,35 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         relay_type = (relay_type_t)relay_type_item->valueint;
     }
 
-    // Load relay from NVS based on the type
+    // Load relay from NVS based on the relay_key
     relay_unit_t relay;
-    char *relay_nvs_key = get_relay_nvs_key(relay_channel);
     if (relay_type == RELAY_TYPE_SENSOR) {
-        err = load_relay_sensor_from_nvs(relay_nvs_key, &relay);
+        err = load_relay_sensor_from_nvs(relay_key, &relay);
     } else {
-        err = load_relay_actuator_from_nvs(relay_nvs_key, &relay);
+        err = load_relay_actuator_from_nvs(relay_key, &relay);
     }
-    free(relay_nvs_key);
-    
+
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to load relay from NVS");
         cJSON_Delete(json);
         httpd_resp_send_500(req);
         return ESP_FAIL;
+    }
+
+    // Validate GPIO pin if provided in the JSON
+    cJSON *relay_gpio_pin_item = cJSON_GetObjectItem(data, "relay_gpio_pin");
+    if (relay_gpio_pin_item != NULL && cJSON_IsNumber(relay_gpio_pin_item)) {
+        int gpio_pin = relay_gpio_pin_item->valueint;
+
+        // Validate the GPIO pin against the safe list
+        if (!is_gpio_safe(gpio_pin)) {
+            ESP_LOGE(TAG, "Invalid GPIO pin: %d", gpio_pin);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid GPIO pin");
+            cJSON_Delete(json);
+            return ESP_FAIL;
+        }
+
+        relay.gpio_pin = gpio_pin;
     }
 
     // Update relay properties based on the JSON data (if provided)
@@ -1021,21 +1129,13 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         relay.enabled = relay_enabled_item->valueint;
     }
 
-    cJSON *relay_gpio_pin_item = cJSON_GetObjectItem(data, "relay_gpio_pin");
-    if (relay_gpio_pin_item != NULL && cJSON_IsNumber(relay_gpio_pin_item)) {
-        relay.gpio_pin = relay_gpio_pin_item->valueint;
-    }
-
     cJSON *relay_inverted_item = cJSON_GetObjectItem(data, "relay_inverted");
     if (relay_inverted_item != NULL && cJSON_IsBool(relay_inverted_item)) {
         relay.inverted = relay_inverted_item->valueint;
     }
 
-    // Save the updated relay to NVS
-    relay_nvs_key = get_relay_nvs_key(relay.channel);
-    err = save_relay_to_nvs(relay_nvs_key, &relay);
-    free(relay_nvs_key);
-
+    // Save the updated relay to NVS using relay_key
+    err = save_relay_to_nvs(relay_key, &relay);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save relay to NVS");
         cJSON_Delete(json);
@@ -1076,3 +1176,171 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
 
     return ESP_OK;
 }
+
+/**
+ * @brief: Status web-service
+ */
+static esp_err_t status_data_handler(httpd_req_t *req) {
+    
+    device_status_t device_status;
+    ESP_ERROR_CHECK(device_status_init(&device_status));
+    
+    // Convert cJSON object to a string
+    const char *json_response = serialize_all_device_data(&device_status);
+
+    
+    // Set the content type to JSON and send the response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_response, strlen(json_response));
+
+    // Free allocated memory
+    free((void *)json_response);
+
+    return ESP_OK;
+}
+
+static esp_err_t status_get_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Processing status web request");
+
+    // Allocate memory dynamically for template and output
+    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
+    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+
+    if (html_template == NULL || html_output == NULL) {
+        ESP_LOGE(TAG, "Memory allocation failed");
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
+    FILE *f = fopen("/spiffs/status.html", "r");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for reading");
+        free(html_template);
+        free(html_output);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+
+    // Load the template into html_template
+    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    fclose(f);
+    html_template[len] = '\0';  // Null-terminate the string
+
+    // Copy template into html_output for modification
+    strcpy(html_output, html_template);
+
+    // Allocate memory for the strings you will retrieve from NVS
+    char *device_id = NULL;
+    char *device_serial = NULL;
+    uint16_t relay_refr_int;
+
+    // Load settings from NVS (use default values if not set)
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, &relay_refr_int));
+
+    char sensor_intervl_str[10];
+    snprintf(sensor_intervl_str, sizeof(sensor_intervl_str), "%i", (uint16_t) relay_refr_int);
+
+    replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
+    replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
+    replace_placeholder(html_output, "{VAL_STATUS_READ_INTERVAL}", sensor_intervl_str);
+
+    // replace static fields
+    assign_static_page_variables(html_output);
+
+
+    // Send the final HTML response
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, html_output, strlen(html_output));
+
+    // Free dynamically allocated memory
+    free(html_template);
+    free(html_output);
+    free(device_id);
+    free(device_serial);
+
+    return ESP_OK;
+}
+
+
+static esp_err_t relays_data_get_handler(httpd_req_t *req) {
+    // Create a JSON object for the response
+    cJSON *response = cJSON_CreateObject();
+    if (response == NULL) {
+        ESP_LOGE(TAG, "Failed to create JSON response");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Create a JSON array to hold the list of relays and sensors
+    cJSON *relay_array = cJSON_CreateArray();
+    if (relay_array == NULL) {
+        ESP_LOGE(TAG, "Failed to create JSON relay array");
+        cJSON_Delete(response);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Add the array to the response
+    cJSON_AddItemToObject(response, "data", relay_array);
+
+    // Get all relays and sensors
+    relay_unit_t *relay_list = NULL;
+    uint16_t total_count = 0;
+    esp_err_t err = get_all_relay_units(&relay_list, &total_count);
+    if (err != ESP_OK) {
+        cJSON_Delete(response);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Serialize each relay_unit_t and add it to the JSON array
+    for (int i = 0; i < total_count; i++) {
+        char *serialized_relay = serialize_relay_unit(&relay_list[i]);
+        if (serialized_relay != NULL) {
+            cJSON *relay_json = cJSON_Parse(serialized_relay);
+            cJSON_AddItemToArray(relay_array, relay_json);
+            free(serialized_relay);
+        }
+    }
+
+    // Free the relay list memory
+    free(relay_list);
+
+    // Add status object to the response
+    cJSON *status = cJSON_CreateObject();
+    if (status == NULL) {
+        ESP_LOGE(TAG, "Failed to create JSON status object");
+        cJSON_Delete(response);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    cJSON_AddItemToObject(response, "status", status);
+    cJSON_AddNumberToObject(status, "count", total_count);
+    cJSON_AddNumberToObject(status, "code", 0);  // 0 means success
+    cJSON_AddStringToObject(status, "text", "ok");
+
+    // Convert the response to a JSON string
+    char *json_response = cJSON_Print(response);
+    if (json_response == NULL) {
+        ESP_LOGE(TAG, "Failed to convert JSON response to string");
+        cJSON_Delete(response);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Send the JSON response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_response, strlen(json_response));
+
+    // Clean up
+    free(json_response);
+    cJSON_Delete(response);
+
+    return ESP_OK;
+}
+

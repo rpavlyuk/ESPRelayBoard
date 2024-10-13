@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="description" content="">
     <meta name="author" content="Roman Pavlyuk">
-    <title>Pressure Sensor Device Status: {VAL_DEVICE_ID} </title>
+    <title>Relay Board Status: {VAL_DEVICE_ID} </title>
     <meta name="theme-color" content="#712cf9">
 
 
@@ -17,21 +17,19 @@
     <div class="container">
         <header class="d-flex justify-content-center py-3">
             <ul class="nav nav-pills">
-            <li class="nav-item"><a href="/" class="nav-link" aria-current="page">Configuration</a></li>
-            <li class="nav-item"><a href="/status" class="nav-link active">Status</a></li>
+                <li class="nav-item"><a href="/config" class="nav-link" aria-current="page">Configuration</a></li>
+                <li class="nav-item"><a href="/relays" class="nav-link" aria-current="page">Relays</a></li>
+                <li class="nav-item"><a href="/status" class="nav-link active">Status</a></li>
             </ul>
         </header>
     </div>
+    <div class="container" id="blockRelayState">
+        <!-- relays list here -->
+    </div>
+
     <div class="container">
         <div class="container">
-            <table border="0">
-                <tr><td><b>Sensor Readings & Parameters</b></td><td></td></tr>
-                <tr><td>Pressure</td><td><span id="val_pressure"></span> Pa</td></tr>
-                <tr><td>Voltage</td><td><span id="val_voltage"></span> V</td></tr>
-                <tr><td>Voltage Offset</td><td><span id="val_voltage_offset"></span> V</td></tr>
-                <tr><td>Sensor Linear Multiplier</td><td><span id="val_sensor_linear_multiplier"></span></td></tr>
-                <tr><td>Raw Voltage</td><td><span id="val_voltage_raw"></span></td></tr>
-                
+            <table border="0">          
                 <tr><td><b>Device Status</b></td><td></td></tr>
                 <tr><td>Free Heap</td><td><span id="val_free_heap"></span> bytes</td></tr>
                 <tr><td>Minimum Free Heap</td><td><span id="val_min_free_heap"></span> bytes</td></tr>
@@ -66,33 +64,28 @@
     
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
-            function formatTimeSinceBoot(microseconds) {
-        let total_seconds = Math.floor(microseconds / 1000000); // Convert microseconds to seconds
-        
-        let days = Math.floor(total_seconds / (24 * 60 * 60)); // Calculate days
-        total_seconds %= (24 * 60 * 60); // Get remaining seconds after calculating days
-        
-        let hours = Math.floor(total_seconds / (60 * 60)); // Calculate hours
-        total_seconds %= (60 * 60); // Get remaining seconds after calculating hours
-        
-        let minutes = Math.floor(total_seconds / 60); // Calculate minutes
-        let seconds = total_seconds % 60; // Remaining seconds
+        function formatTimeSinceBoot(microseconds) {
 
-        return `${days} days ${hours} hours ${minutes} minutes ${seconds} seconds`;
-    }
+            let total_seconds = Math.floor(microseconds / 1000000); // Convert microseconds to seconds
+            
+            let days = Math.floor(total_seconds / (24 * 60 * 60)); // Calculate days
+            total_seconds %= (24 * 60 * 60); // Get remaining seconds after calculating days
+            
+            let hours = Math.floor(total_seconds / (60 * 60)); // Calculate hours
+            total_seconds %= (60 * 60); // Get remaining seconds after calculating hours
+            
+            let minutes = Math.floor(total_seconds / 60); // Calculate minutes
+            let seconds = total_seconds % 60; // Remaining seconds
 
-    function updateSensorData() {
+            return `${days} days ${hours} hours ${minutes} minutes ${seconds} seconds`;
+        }
+
+    function updateStatusData() {
         $.ajax({
-            url: '/status-data',
+            url: '/api/status',
             type: 'GET',
             dataType: 'json',
             success: function(response) {
-                $('#val_pressure').text(response.sensor.pressure.toFixed(2));
-                $('#val_voltage').text(response.sensor.voltage.toFixed(3));
-                $('#val_voltage_offset').text(response.sensor.voltage_offset.toFixed(3));
-                $('#val_sensor_linear_multiplier').text(response.sensor.sensor_linear_multiplier);
-                $('#val_voltage_raw').text(response.sensor.voltage_raw);
-
                 $('#val_free_heap').text(response.status.free_heap);
                 $('#val_min_free_heap').text(response.status.min_free_heap);
                 // Convert time since boot to a readable format and update the element
@@ -100,15 +93,129 @@
                 $('#val_time_since_boot').text(time_since_boot);
             },
             error: function() {
-                console.error("Failed to fetch sensor data");
+                console.error("Failed to fetch device status data");
             }
         });
     }
 
     $(document).ready(function() {
-        updateSensorData();
-        setInterval(updateSensorData, {VAL_SENSOR_READ_INTERVAL});
+        updateStatusData();
+        setInterval(updateStatusData, {VAL_STATUS_READ_INTERVAL});
     });
     </script>
+    <script>
+        // Semaphore-like flag to control if relays should be loaded or not
+        let isUpdating = false;
+
+        // Function to populate the relays into the blockRelayState
+        function loadRelays() {
+            if (isUpdating) {
+                // If an update is in progress, don't refresh the relays list
+                return;
+            }
+
+            $.ajax({
+                url: '/api/relays',
+                type: 'GET',
+                dataType: 'json',
+                success: function(response) {
+                    // Clear the existing block
+                    $('#blockRelayState').empty();
+
+                    // Create two sections: one for actuators and one for sensors
+                    let actuatorsHtml = '<h3>Actuators</h3><table class="table table-striped">';
+                    actuatorsHtml += '<thead><tr><th>Relay Key</th><th>Channel</th><th>GPIO</th><th>State</th></tr></thead><tbody>';
+                    
+                    let sensorsHtml = '<h3>Sensors</h3><table class="table table-striped">';
+                    sensorsHtml += '<thead><tr><th>Relay Key</th><th>Channel</th><th>GPIO</th><th>Contact State (OPEN/CLOSED)</th></tr></thead><tbody>';
+
+                    // Iterate through the relays
+                    response.data.forEach(function(relay) {
+                        let rowHtml = '';
+
+                        if (relay.type === 0) {
+                            // If the type is 0, it's an actuator (relay)
+                            let checked = relay.state ? 'checked' : '';
+                            rowHtml = `<tr>
+                                <td>${relay.relay_key}</td>
+                                <td>${relay.channel}</td>
+                                <td>${relay.gpio_pin}</td>
+                                <td>
+                                    <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="switch_${relay.relay_key}" ${checked} onchange="changeRelayState('${relay.relay_key}', ${relay.channel}, this.checked)">
+                                    <label class="form-check-label" for="switch_${relay.relay_key}">${relay.state ? 'ON' : 'OFF'}</label>
+                                    </div>
+                                </td>
+                            </tr>`;
+                            actuatorsHtml += rowHtml;
+                        } else if (relay.type === 1) {
+                            // If the type is 1, it's a contact sensor
+                            let stateText = relay.state ? "CLOSED" : "OPEN";
+                            rowHtml = `<tr>
+                                <td>${relay.relay_key}</td>
+                                <td>${relay.channel}</td>
+                                <td>${relay.gpio_pin}</td>
+                                <td>${stateText}</td>
+                            </tr>`;
+                            sensorsHtml += rowHtml;
+                        }
+                    });
+
+                    actuatorsHtml += '</tbody></table>';
+                    sensorsHtml += '</tbody></table>';
+
+                    // Append the sections to the blockRelayState container
+                    $('#blockRelayState').append(actuatorsHtml + sensorsHtml);
+                },
+                error: function() {
+                    console.error("Failed to fetch relay data from the API");
+                }
+            });
+        }
+
+        // Function to change the state of a relay via a POST request
+        function changeRelayState(relayKey, channel, isChecked) {
+            // Set the flag to true to stop auto-refresh
+            isUpdating = true;
+
+            // Prepare the payload for the update
+            let payload = {
+                data: {
+                    device_serial: '{VAL_DEVICE_SERIAL}',  // Device serial added here as a placeholder
+                    relay_key: relayKey,
+                    relay_channel: channel,
+                    relay_state: isChecked
+                }
+            };
+
+            $.ajax({
+                url: '/api/relay/update',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(payload),
+                success: function(response) {
+                    console.log(`Relay ${relayKey} updated successfully`);
+
+                    // After update is successful, set the flag to false and refresh the relays list
+                    isUpdating = false;
+                    loadRelays();  // Reload the relays to show the updated state
+                },
+                error: function() {
+                    console.error(`Failed to update relay ${relayKey}`);
+
+                    // In case of error, reset the flag so the auto-refresh can resume
+                    isUpdating = false;
+                }
+            });
+        }
+
+        // Call loadRelays function on document ready and refresh the list periodically
+        $(document).ready(function() {
+            loadRelays();
+            // Set reload interval using the server-side value placeholder {VAL_STATUS_READ_INTERVAL}
+            setInterval(loadRelays, {VAL_STATUS_READ_INTERVAL}); // Reload relays list based on the interval
+        });
+    </script>
+
 </body>
 </html>

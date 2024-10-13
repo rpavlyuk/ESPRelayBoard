@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="description" content="">
     <meta name="author" content="Roman Pavlyuk">
-    <title>Pressure Sensor Device Status: {VAL_DEVICE_ID} </title>
+    <title>Relay Board Status: {VAL_DEVICE_ID} </title>
     <meta name="theme-color" content="#712cf9">
 
 
@@ -24,13 +24,27 @@
         </header>
     </div>
     <div class="container">
+      <p><strong>NOTE:</strong> You can only use the following GPIO pin numbers: {VAL_GPIO_SAFE_PINS}<br/>Also, make sure pin numbers do not overlap.</p>
+    </div>
+    <div class="container">
       <!-- Relays -->
+      <h3>Relays</h3>
       <table class="table">
         <thead class="thead-light">
         {RELAYS_TABLE_HEADER}
         </thead>
         <tbody>
         {RELAYS_TABLE_BODY}
+        </tbody>
+      </table>
+      <!-- Contact Sensors -->
+      <h3>Contact Sensors</h3>
+      <table class="table">
+        <thead class="thead-light">
+        {CONTACT_SENSORS_TABLE_HEADER}
+        </thead>
+        <tbody>
+        {CONTACT_SENSORS_TABLE_BODY}
         </tbody>
       </table>
     </div>
@@ -70,6 +84,7 @@
           const relayData = {
               data: {
                   device_serial: deviceSerial,
+                  relay_key: relayKey,           // Add relay_key to the JSON data
                   relay_channel: relayChannel,
                   relay_gpio_pin: gpioPinValue,  // Send GPIO pin as a number
                   relay_enabled: enabledValue,   // Send enabled as boolean
@@ -79,13 +94,13 @@
       
           // Send the JSON data to the /update-relay endpoint via POST
           $.ajax({
-              url: '/update-relay',
+              url: '/api/relay/update',
               type: 'POST',
               contentType: 'application/json',
               data: JSON.stringify(relayData),
               success: function(response) {
                   // Display success message next to the "Update" button
-                  $("#status_" + relayChannel).text("Status: " + response.status.error);
+                  $("#status_" + relayKey).text("Status: " + response.status.error);
       
                   // Check if the update was successful
                   if (response.status.code === 0) {
@@ -104,11 +119,12 @@
               },
               error: function(xhr, status, error) {
                   // Handle any error and display the error message
-                  $("#status_" + relayChannel).text("Error: " + error);
+                  $("#status_" + relayKey).text("Error: " + error);
               }
           });
       }
       </script>
+      
         
 </body>
 </html>

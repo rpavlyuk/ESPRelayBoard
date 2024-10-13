@@ -248,7 +248,7 @@ esp_err_t device_settings_init() {
         }
     }
 
-    // Parameter: Relay channels (actautors) count
+    // Parameter: Relay channels (actuators) count
     uint16_t channel_count;
     if (nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &channel_count) == ESP_OK) {
         ESP_LOGI(TAG, "Found parameter %s in NVS: %i", S_KEY_CHANNEL_COUNT, channel_count);
@@ -263,7 +263,7 @@ esp_err_t device_settings_init() {
         }
     }
 
-    // Parameter: Relay channels (actautors) count
+    // Parameter: Relay channels (sensors) count
     uint16_t relay_sn_count;
     if (nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count) == ESP_OK) {
         ESP_LOGI(TAG, "Found parameter %s in NVS: %i", S_KEY_CONTACT_SENSORS_COUNT, relay_sn_count);
@@ -279,6 +279,7 @@ esp_err_t device_settings_init() {
     }
 
     // not, let's iterate via all relays stored in the memory and try load/initiate them
+    ESP_LOGI(TAG, "Settings: Initiating relays");
     for (int i_channel = 0; i_channel < channel_count; i_channel++) {
         relay_unit_t *relay;
         // Allocate memory for the relay pointer
@@ -298,12 +299,49 @@ esp_err_t device_settings_init() {
             ESP_LOGW(TAG, "Unable to find relay channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
 
             // Initialize the relay using the get_actuator_relay function
-            *relay = get_actuator_relay(i_channel, 0);
+            *relay = get_actuator_relay(i_channel, S_DEFAULT_RELAY_GPIO_PIN);
 
             // Save the relay configuration to NVS
             esp_err_t err = save_relay_to_nvs(relay_nvs_key, relay);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to save relay configuration to NVS");
+                free(relay_nvs_key);
+                free(relay);
+                return ESP_FAIL;
+            }
+            // Free the memory allocated for the NVS key
+            free(relay_nvs_key);
+            free(relay);
+        }
+    }
+
+    // not, let's iterate via all sensors stored in the memory and try load/initiate them
+    ESP_LOGI(TAG, "Settings: Initiating contact sensors");
+    for (int i_channel = 0; i_channel < relay_sn_count; i_channel++) {
+        relay_unit_t *relay;
+        // Allocate memory for the relay pointer
+        relay = malloc(sizeof(relay_unit_t));
+        if (relay == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for contact sensor");
+            return ESP_FAIL; // Handle error accordingly
+        }
+        char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
+        if (relay_nvs_key == NULL) {
+            ESP_LOGE(TAG, "Failed to get NVS key for channel %d", i_channel);
+            return ESP_FAIL; // Handle error accordingly
+        }
+        if(load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Found sensor contact channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+        } else {
+            ESP_LOGW(TAG, "Unable to find sensor contact channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
+
+            // Initialize the relay using the get_actuator_relay function
+            *relay = get_sensor_relay(i_channel, S_DEFAULT_RELAY_GPIO_PIN);
+
+            // Save the relay configuration to NVS
+            esp_err_t err = save_relay_to_nvs(relay_nvs_key, relay);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to save contact sensor configuration to NVS");
                 free(relay_nvs_key);
                 free(relay);
                 return ESP_FAIL;

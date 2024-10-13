@@ -10,6 +10,7 @@
 #include "settings.h"
 #include "wifi.h"
 #include "web.h"
+#include "status.h"
 
 void app_main(void) {
 
@@ -75,6 +76,12 @@ void app_main(void) {
             xTaskCreate(run_http_server, "run_http_server", 8192, NULL, 5, NULL);
         }
 
+    }
+
+    if (_DEVICE_ENABLE_STATUS) {
+        ESP_LOGI(TAG, "Status ENABLED!");
+        // Start the status monitoring task 
+        status_init();
     }
 
 }

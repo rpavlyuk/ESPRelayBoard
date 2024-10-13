@@ -9,8 +9,22 @@
 #include "settings.h"
 #include "relay.h"
 
+const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT] = {2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31};
 
 /* Routines */
+
+/**
+ * @brief: checks if a GPIO is in the safe list
+ * @param gpio_pin GPIO pin number
+ */
+bool is_gpio_safe(int gpio_pin) {
+    for (int i = 0; i < SAFE_GPIO_COUNT; i++) {
+        if (SAFE_GPIO_PINS[i] == gpio_pin) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /**
  * @brief Initialize a relay actuator
@@ -231,6 +245,33 @@ char *get_relay_nvs_key(int channel) {
     return key;
 }
 
+/**
+ * @brief Get the NVS key for a contact sensor channel
+ *
+ * @param channel The relay contact sensor number
+ * @return Dynamically allocated string with the NVS key, or NULL if out of range
+ */
+char *get_contact_sensor_nvs_key(int channel) {
+    // Check if the channel is within the valid range
+    if (channel < CONTACT_SENSORS_COUNT_MIN || channel > CONTACT_SENSORS_COUNT_MAX) {
+        ESP_LOGE(TAG, "Channel %d is out of valid range (%d - %d)", channel, CONTACT_SENSORS_COUNT_MIN, CONTACT_SENSORS_COUNT_MAX);
+        return NULL;
+    }
+
+    // Allocate memory for the key string
+    size_t key_size = snprintf(NULL, 0, "%s%d", S_KEY_SN_PREFIX, channel) + 1;
+    char *key = malloc(key_size);
+    if (key == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for NVS key");
+        return NULL;
+    }
+
+    // Create the key string
+    snprintf(key, key_size, "%s%d", S_KEY_SN_PREFIX, channel);
+
+    return key;
+}
+
 // Serialization function: Converts relay_unit_t to a JSON string
 char* serialize_relay_unit(const relay_unit_t *relay) {
     cJSON *relay_json = cJSON_CreateObject();
@@ -238,6 +279,10 @@ char* serialize_relay_unit(const relay_unit_t *relay) {
         ESP_LOGE(TAG, "Failed to create JSON object for relay serialization");
         return NULL;
     }
+
+    // Generate relay_key based on type
+    char *relay_key = (relay->type == RELAY_TYPE_ACTUATOR) ? get_relay_nvs_key(relay->channel) : get_contact_sensor_nvs_key(relay->channel);
+    cJSON_AddStringToObject(relay_json, "relay_key", relay_key);
 
     // Serialize the fields
     cJSON_AddNumberToObject(relay_json, "channel", relay->channel);
@@ -253,8 +298,9 @@ char* serialize_relay_unit(const relay_unit_t *relay) {
         ESP_LOGE(TAG, "Failed to convert relay JSON object to string");
     }
 
-    // Free the JSON object
+    // Free the JSON object and relay_key
     cJSON_Delete(relay_json);
+    free(relay_key);
 
     return json_string;
 }
@@ -291,4 +337,124 @@ esp_err_t deserialize_relay_unit(const char *json_str, relay_unit_t *relay) {
     cJSON_Delete(relay_json);
     return ESP_OK;
 }
+
+/**
+ * @brief: Create list of safe pins
+ */
+void populate_safe_gpio_pins(char *buffer, size_t buffer_size) {
+    // Initialize the buffer with an empty string
+    buffer[0] = '\0';
+
+    // Iterate over SAFE_GPIO_PINS array and append each pin to the buffer
+    for (int i = 0; i < SAFE_GPIO_COUNT; i++) {
+        // Append a comma after each pin except the last one
+        if (i == SAFE_GPIO_COUNT - 1) {
+            snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%d", SAFE_GPIO_PINS[i]);
+        } else {
+            snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%d, ", SAFE_GPIO_PINS[i]);
+        }
+    }
+}
+
+esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
+    uint16_t relay_ch_count;
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
+    *count = relay_ch_count;
+
+    // Allocate memory for the list of relays
+    *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * relay_ch_count);
+    if (*relay_list == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for relay list");
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int i_channel = 0; i_channel < relay_ch_count; i_channel++) {
+        relay_unit_t relay;
+        char *relay_nvs_key = get_relay_nvs_key(i_channel);
+        if (load_relay_actuator_from_nvs(relay_nvs_key, &relay) == ESP_OK) {
+            (*relay_list)[i_channel] = relay;  // Add relay to the list
+        }
+        free(relay_nvs_key);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
+    // Read the number of contact sensors from NVS
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, count));
+
+    // If there are no contact sensors, skip allocation and return success
+    if (*count == 0) {
+        *sensor_list = NULL;  // No need to allocate memory for an empty list
+        return ESP_OK;
+    }
+
+    // Allocate memory for the list of contact sensors
+    *sensor_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*count));
+    if (*sensor_list == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for contact sensor list");
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Loop through and load contact sensors from NVS
+    for (int i_channel = 0; i_channel < *count; i_channel++) {
+        relay_unit_t relay;
+        char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
+        if (load_relay_sensor_from_nvs(relay_nvs_key, &relay) == ESP_OK) {
+            (*sensor_list)[i_channel] = relay;  // Add contact sensor to the list
+        }
+        free(relay_nvs_key);
+    }
+
+    return ESP_OK;
+}
+
+
+esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) {
+    relay_unit_t *actuators = NULL, *sensors = NULL;
+    uint16_t actuator_count = 0, sensor_count = 0;
+
+    // Get actuators (relays) and handle the case where there are no actuators
+    ESP_ERROR_CHECK(get_relay_list(&actuators, &actuator_count));
+
+    // Get contact sensors and handle the case where there are no contact sensors
+    ESP_ERROR_CHECK(get_contact_sensor_list(&sensors, &sensor_count));
+
+    // Calculate the total count
+    *total_count = actuator_count + sensor_count;
+
+    // If there are no relays or sensors, return success without allocating memory
+    if (*total_count == 0) {
+        *relay_list = NULL;  // No relays or sensors, so no allocation needed
+        return ESP_OK;
+    }
+
+    // Allocate memory for the combined list of relays and sensors
+    *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*total_count));
+    if (*relay_list == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for combined relay list");
+        free(actuators);
+        free(sensors);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Copy actuators to the combined list
+    if (actuator_count > 0) {
+        memcpy(*relay_list, actuators, sizeof(relay_unit_t) * actuator_count);
+    }
+
+    // Copy sensors to the combined list after actuators
+    if (sensor_count > 0) {
+        memcpy(*relay_list + actuator_count, sensors, sizeof(relay_unit_t) * sensor_count);
+    }
+
+    // Free the temporary lists
+    free(actuators);
+    free(sensors);
+
+    return ESP_OK;
+}
+
+
 
