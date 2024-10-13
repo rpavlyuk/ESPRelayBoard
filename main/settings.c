@@ -299,7 +299,12 @@ esp_err_t device_settings_init() {
             ESP_LOGW(TAG, "Unable to find relay channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
 
             // Initialize the relay using the get_actuator_relay function
-            *relay = get_actuator_relay(i_channel, S_DEFAULT_RELAY_GPIO_PIN);
+            int gpio_pin = get_next_available_safe_gpio_pin();
+            if (gpio_pin < 0) {
+                ESP_LOGE(TAG, "No safe GPIO pins left! Cannot assign one to the relay unit. Aborting!");
+                return ESP_FAIL;
+            }
+            *relay = get_actuator_relay(i_channel, gpio_pin);
 
             // Save the relay configuration to NVS
             esp_err_t err = save_relay_to_nvs(relay_nvs_key, relay);
@@ -336,7 +341,12 @@ esp_err_t device_settings_init() {
             ESP_LOGW(TAG, "Unable to find sensor contact channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
 
             // Initialize the relay using the get_actuator_relay function
-            *relay = get_sensor_relay(i_channel, S_DEFAULT_RELAY_GPIO_PIN);
+            int gpio_pin = get_next_available_safe_gpio_pin();
+            if (gpio_pin < 0) {
+                ESP_LOGE(TAG, "No safe GPIO pins left! Cannot assign one to the relay unit. Aborting!");
+                return ESP_FAIL;
+            }
+            *relay = get_sensor_relay(i_channel, gpio_pin);
 
             // Save the relay configuration to NVS
             esp_err_t err = save_relay_to_nvs(relay_nvs_key, relay);

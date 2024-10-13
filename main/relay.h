@@ -32,10 +32,12 @@ typedef struct {
     gpio_config_t *io_conf;     // GPIO IO configuration
 } relay_unit_t;
 
-#define SAFE_GPIO_COUNT 19
+#define SAFE_GPIO_COUNT 18
 extern const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT];
 
 bool is_gpio_safe(int gpio_pin);
+bool is_gpio_pin_in_use(int pin);
+int get_next_available_safe_gpio_pin();
 void populate_safe_gpio_pins(char *buffer, size_t buffer_size);
 
 relay_unit_t get_actuator_relay(int channel, int pin);
@@ -114,6 +116,17 @@ esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count);
  */
 esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count);
 
+
+/**
+ * @brief Frees memory allocated for relay_unit_t array, including dynamically allocated io_conf field.
+ *
+ * @param relay_list Pointer to an array of relay_unit_t.
+ * @param count Number of elements in the relay_list array.
+ * @return
+ *     - ESP_OK: Successfully freed all memory.
+ *     - ESP_ERR_INVALID_ARG: relay_list is NULL.
+ */
+esp_err_t free_relays_array(relay_unit_t *relay_list, size_t count);
 
 
 #endif

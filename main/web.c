@@ -1114,7 +1114,12 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
             cJSON_Delete(json);
             return ESP_FAIL;
         }
-
+        if (is_gpio_pin_in_use(gpio_pin)) {
+            ESP_LOGE(TAG, "GPIO pin %d is in use", gpio_pin);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GPIO pin is in use");
+            cJSON_Delete(json);
+            return ESP_FAIL;
+        }
         relay.gpio_pin = gpio_pin;
     }
 
@@ -1280,12 +1285,12 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     cJSON *relay_array = cJSON_CreateArray();
     if (relay_array == NULL) {
         ESP_LOGE(TAG, "Failed to create JSON relay array");
-        cJSON_Delete(response);
+        cJSON_Delete(response);  // Free the response on error
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
-    // Add the array to the response
+    // Add the relay array to the response as "data"
     cJSON_AddItemToObject(response, "data", relay_array);
 
     // Get all relays and sensors
@@ -1293,7 +1298,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     uint16_t total_count = 0;
     esp_err_t err = get_all_relay_units(&relay_list, &total_count);
     if (err != ESP_OK) {
-        cJSON_Delete(response);
+        cJSON_Delete(response);  // Free the response on error
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -1303,22 +1308,31 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
         char *serialized_relay = serialize_relay_unit(&relay_list[i]);
         if (serialized_relay != NULL) {
             cJSON *relay_json = cJSON_Parse(serialized_relay);
-            cJSON_AddItemToArray(relay_array, relay_json);
-            free(serialized_relay);
+            if (relay_json != NULL) {
+                cJSON_AddItemToArray(relay_array, relay_json);  // Add the parsed relay to the array
+            } else {
+                ESP_LOGE(TAG, "Failed to parse serialized relay");
+            }
+            free(serialized_relay);  // Free serialized relay string after usage
+        } else {
+            ESP_LOGE(TAG, "Failed to serialize relay unit");
         }
     }
 
     // Free the relay list memory
+    // ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
     free(relay_list);
 
-    // Add status object to the response
+    // Create and add a status object to the response
     cJSON *status = cJSON_CreateObject();
     if (status == NULL) {
         ESP_LOGE(TAG, "Failed to create JSON status object");
-        cJSON_Delete(response);
+        cJSON_Delete(response);  // Free the response on error
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
+    
+    // Add the status block to the response
     cJSON_AddItemToObject(response, "status", status);
     cJSON_AddNumberToObject(status, "count", total_count);
     cJSON_AddNumberToObject(status, "code", 0);  // 0 means success
@@ -1328,19 +1342,19 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     char *json_response = cJSON_Print(response);
     if (json_response == NULL) {
         ESP_LOGE(TAG, "Failed to convert JSON response to string");
-        cJSON_Delete(response);
+        cJSON_Delete(response);  // Free the response on error
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
     // Send the JSON response
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json_response, strlen(json_response));
+    esp_err_t ret = httpd_resp_send(req, json_response, strlen(json_response));
 
     // Clean up
-    free(json_response);
-    cJSON_Delete(response);
+    free(json_response);  // Free the generated JSON string
+    cJSON_Delete(response);  // Free the root JSON object
 
-    return ESP_OK;
+    return ret;
 }
 

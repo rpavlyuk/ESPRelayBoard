@@ -9,7 +9,7 @@
 #include "settings.h"
 #include "relay.h"
 
-const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT] = {2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31};
+const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT] = {4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31};
 
 /* Routines */
 
@@ -25,6 +25,67 @@ bool is_gpio_safe(int gpio_pin) {
     }
     return false;
 }
+
+/**
+ * @brief Checks if a specific GPIO pin is in use by any relay.
+ *
+ * @param pin The GPIO pin number to check.
+ * @return
+ *     - true: The pin is in use by some relay.
+ *     - false: The pin is not in use.
+ */
+bool is_gpio_pin_in_use(int pin) {
+    relay_unit_t *relay_list = NULL;
+    uint16_t total_count = 0;
+    esp_err_t err = get_all_relay_units(&relay_list, &total_count);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get relay units.");
+        return false;  // Assume pin is not in use in case of failure
+    }
+
+    if (total_count < 1) {
+        ESP_LOGW(TAG, "No initialized relay units are found. Pin is not in use.");
+        return false;
+    }
+
+    for (int i = 0; i < total_count; i++) {
+        if (relay_list[i].gpio_pin == pin) {
+            const char *type_str = (relay_list[i].type == RELAY_TYPE_ACTUATOR) ? "actuator" : "sensor";
+            ESP_LOGI(TAG, "GPIO pin %d is already in use by relay channel %d (%s)", 
+                     pin, relay_list[i].channel, type_str);
+            // ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));  // Free the relay list memory
+            free(relay_list);
+            return true;
+        }
+    }
+
+    // Free the relay list memory
+    free(relay_list);
+
+    ESP_LOGI(TAG, "GPIO pin %d is not in use", pin);
+    return false;
+}
+
+/**
+ * @brief Finds the next available safe GPIO pin that is not in use by any relay.
+ *
+ * @return
+ *     - GPIO pin number: The first available safe GPIO pin.
+ *     - -1: All safe GPIO pins are in use.
+ */
+int get_next_available_safe_gpio_pin() {
+    for (int i = 0; i < SAFE_GPIO_COUNT; i++) {
+        if (!is_gpio_pin_in_use(SAFE_GPIO_PINS[i])) {
+            ESP_LOGI(TAG, "Found available safe GPIO pin: %d", SAFE_GPIO_PINS[i]);
+            return SAFE_GPIO_PINS[i];  // Return the first available safe pin
+        }
+    }
+
+    ESP_LOGW(TAG, "No available safe GPIO pins found.");
+    return -1;  // All safe pins are in use
+}
+
 
 /**
  * @brief Initialize a relay actuator
@@ -357,9 +418,17 @@ void populate_safe_gpio_pins(char *buffer, size_t buffer_size) {
 }
 
 esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
+
+    uint16_t stored_relays_count = 0; // number of actually stored and initialized relays
     uint16_t relay_ch_count;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
-    *count = relay_ch_count;
+
+    // If there are no relays, skip allocation and return success
+    if (relay_ch_count == 0) {
+        ESP_LOGW(TAG, "No relays allocated. NULL array will be returned.");
+        *relay_list = NULL;  // No need to allocate memory for an empty list
+        return ESP_OK;
+    }
 
     // Allocate memory for the list of relays
     *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * relay_ch_count);
@@ -368,24 +437,31 @@ esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
         return ESP_ERR_NO_MEM;
     }
 
+    ESP_LOGI(TAG, "Processing relay array...");
     for (int i_channel = 0; i_channel < relay_ch_count; i_channel++) {
         relay_unit_t relay;
         char *relay_nvs_key = get_relay_nvs_key(i_channel);
         if (load_relay_actuator_from_nvs(relay_nvs_key, &relay) == ESP_OK) {
             (*relay_list)[i_channel] = relay;  // Add relay to the list
+            stored_relays_count++;
         }
         free(relay_nvs_key);
     }
+
+    *count = stored_relays_count;
 
     return ESP_OK;
 }
 
 esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
+    uint16_t stored_sensors_count = 0; // number of actually stored and initialized contact sensors
+
     // Read the number of contact sensors from NVS
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, count));
 
     // If there are no contact sensors, skip allocation and return success
     if (*count == 0) {
+        ESP_LOGW(TAG, "No contact sensors allocated. NULL array will be returned.");
         *sensor_list = NULL;  // No need to allocate memory for an empty list
         return ESP_OK;
     }
@@ -398,14 +474,18 @@ esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
     }
 
     // Loop through and load contact sensors from NVS
+    ESP_LOGI(TAG, "Processing contact sensors array...");
     for (int i_channel = 0; i_channel < *count; i_channel++) {
         relay_unit_t relay;
         char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
         if (load_relay_sensor_from_nvs(relay_nvs_key, &relay) == ESP_OK) {
             (*sensor_list)[i_channel] = relay;  // Add contact sensor to the list
+            stored_sensors_count++;
         }
         free(relay_nvs_key);
     }
+
+    *count = stored_sensors_count;
 
     return ESP_OK;
 }
@@ -424,6 +504,8 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
     // Calculate the total count
     *total_count = actuator_count + sensor_count;
 
+    ESP_LOGI(TAG, "Found %d actuator(s) and %d contact sensor(s). Total: %d unit(s).", actuator_count, sensor_count, *total_count);
+
     // If there are no relays or sensors, return success without allocating memory
     if (*total_count == 0) {
         *relay_list = NULL;  // No relays or sensors, so no allocation needed
@@ -434,26 +516,54 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
     *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*total_count));
     if (*relay_list == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for combined relay list");
-        free(actuators);
-        free(sensors);
+        ESP_ERROR_CHECK(free_relays_array(actuators, actuator_count));
+        ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
         return ESP_ERR_NO_MEM;
     }
 
     // Copy actuators to the combined list
     if (actuator_count > 0) {
         memcpy(*relay_list, actuators, sizeof(relay_unit_t) * actuator_count);
+        ESP_ERROR_CHECK(free_relays_array(actuators, actuator_count));
     }
 
     // Copy sensors to the combined list after actuators
     if (sensor_count > 0) {
         memcpy(*relay_list + actuator_count, sensors, sizeof(relay_unit_t) * sensor_count);
+        ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
     }
 
-    // Free the temporary lists
-    free(actuators);
-    free(sensors);
-
     return ESP_OK;
+}
+
+/**
+ * @brief Frees memory allocated for relay_unit_t array, including dynamically allocated io_conf field.
+ *
+ * @param relay_list Pointer to an array of relay_unit_t.
+ * @param count Number of elements in the relay_list array.
+ * @return
+ *     - ESP_OK: Successfully freed all memory.
+ *     - ESP_ERR_INVALID_ARG: relay_list is NULL.
+ */
+esp_err_t free_relays_array(relay_unit_t *relay_list, size_t count) {
+    if (relay_list == NULL || count < 1) {
+        ESP_LOGE(TAG, "relay_list is NULL or array size is zero, nothing to free");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Iterate through each relay and free the dynamically allocated io_conf field
+    for (size_t i = 0; i < count; i++) {
+        if (relay_list[i].io_conf != NULL) {
+            ESP_LOGI(TAG, "Releasing dynamic memory for unit channel (%d) and type (%d)", relay_list[i].channel, (int)relay_list[i].type);
+            free(relay_list[i].io_conf);  // Free the GPIO configuration for this relay
+            relay_list[i].io_conf = NULL; // Set pointer to NULL to avoid dangling references
+        }
+    }
+
+    // Free the relay list itself
+    free(relay_list);
+
+    return ESP_OK;  // Indicate success
 }
 
 

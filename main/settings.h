@@ -89,7 +89,7 @@ extern int device_ready;
 #define S_DEFAULT_HA_PREFIX             "homeassistant"
 #define S_DEFAULT_HA_UPDATE_INTERVAL    600000              // Update Home Assistant definitions every 10 minutes
 
-#define S_DEFAULT_RELAY_GPIO_PIN                 2  /* Must be within SAFE_GPIO_PINS[] (relay.c) list*/
+#define S_DEFAULT_RELAY_GPIO_PIN                 4  /* Must be within SAFE_GPIO_PINS[] (relay.c) list*/
 
 #define S_DEFAULT_CHANNEL_COUNT                  2
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
