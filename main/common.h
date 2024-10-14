@@ -8,7 +8,7 @@
 #define _DEVICE_ENABLE_WEB      (true && _DEVICE_ENABLE_WIFI)
 #define _DEVICE_ENABLE_MQTT     (true && _DEVICE_ENABLE_WIFI)
 #define _DEVICE_ENABLE_HA       (true && _DEVICE_ENABLE_MQTT)
-#define _DEVICE_ENABLE_STATUS   false
+#define _DEVICE_ENABLE_STATUS   true
 
 static const char *TAG = "RelayBoard";
 

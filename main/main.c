@@ -11,6 +11,7 @@
 #include "wifi.h"
 #include "web.h"
 #include "status.h"
+#include "relay.h"
 
 void app_main(void) {
 
@@ -21,6 +22,13 @@ void app_main(void) {
 
     // Init settings
     ESP_ERROR_CHECK(settings_init());
+
+    // Register ISRs for the GPIO pins
+    ESP_ERROR_CHECK(relay_all_sensors_register_isr());
+
+    // Start monitoring the GPIO events queue for sensor units
+    // Create the GPIO event task to process the ISR queue
+    xTaskCreate(gpio_event_task, "gpio_event_task", 4096, NULL, 10, NULL);
 
         // enable filesystem needed for WEB server
     if (_DEVICE_ENABLE_WEB) {

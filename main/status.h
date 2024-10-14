@@ -23,6 +23,8 @@ typedef struct {
 
 void status_init(void);
 
+void dump_all_gpio_configurations();
+
 esp_err_t device_status_init(device_status_t *status_data);
 
 cJSON *device_status_to_JSON(device_status_t *s_data);

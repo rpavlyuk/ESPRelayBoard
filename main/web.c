@@ -994,7 +994,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 }
 
 /**
- * @brief Handler for /update-relay endpoint
+ * @brief Handler for /api/relay/update endpoint
  *
  * @param req HTTP request
  * @return ESP_OK or ESP_FAIL
@@ -1102,6 +1102,9 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
+    // capture old gpio_pin
+    int gpio_pin_old = relay.gpio_pin;
+
     // Validate GPIO pin if provided in the JSON
     cJSON *relay_gpio_pin_item = cJSON_GetObjectItem(data, "relay_gpio_pin");
     if (relay_gpio_pin_item != NULL && cJSON_IsNumber(relay_gpio_pin_item)) {
@@ -1114,7 +1117,9 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
             cJSON_Delete(json);
             return ESP_FAIL;
         }
-        if (is_gpio_pin_in_use(gpio_pin)) {
+
+        // if we provide a new GPIO pin -- make sure it is not use
+        if (gpio_pin_old != relay.gpio_pin && is_gpio_pin_in_use(gpio_pin)) {
             ESP_LOGE(TAG, "GPIO pin %d is in use", gpio_pin);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GPIO pin is in use");
             cJSON_Delete(json);
@@ -1139,13 +1144,42 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         relay.inverted = relay_inverted_item->valueint;
     }
 
-    // Save the updated relay to NVS using relay_key
-    err = save_relay_to_nvs(relay_key, &relay);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save relay to NVS");
-        cJSON_Delete(json);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
+    // save to NVS: actuators -- via setting the state, sensors -- just saving
+    if (relay.type == RELAY_TYPE_ACTUATOR) {
+        err = relay_set_state(&relay, relay.state);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set relay state and save it to NVS");
+            cJSON_Delete(json);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        } 
+    } else {
+        // Save the updated relay to NVS using relay_key
+        err = save_relay_to_nvs(relay_key, &relay);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to save relay to NVS");
+            cJSON_Delete(json);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+
+        // if pin changed -- re-assign the ISR
+        if (gpio_pin_old != relay.gpio_pin) {
+            err = relay_gpio_init(&relay);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to init new pin number %d when updating the sensor unit", relay.gpio_pin);
+                cJSON_Delete(json);
+                httpd_resp_send_500(req);
+                return ESP_FAIL;
+            } 
+            err = relay_sensor_register_isr(&relay);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to register ISR for new pin number %d when updating the sensor unit", relay.gpio_pin);;
+                cJSON_Delete(json);
+                httpd_resp_send_500(req);
+                return ESP_FAIL;
+            }           
+        }
     }
 
     // Serialize updated relay data for the response
