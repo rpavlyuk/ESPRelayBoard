@@ -295,6 +295,10 @@ esp_err_t device_settings_init() {
         }
         if(load_relay_actuator_from_nvs(relay_nvs_key, relay) == ESP_OK) {
             ESP_LOGI(TAG, "Found relay channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+            // cleanup
+            if (INIT_RELAY_ON_LOAD) {
+                ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+            }
         } else {
             ESP_LOGW(TAG, "Unable to find relay channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
 
@@ -314,10 +318,23 @@ esp_err_t device_settings_init() {
                 free(relay);
                 return ESP_FAIL;
             }
-            // Free the memory allocated for the NVS key
-            free(relay_nvs_key);
-            free(relay);
+
+            // cleanup
+            if (INIT_RELAY_ON_GET) {
+                ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+            }
+
         }
+        
+        // set relay state to GPIO
+        esp_err_t err = relay_set_state(relay, relay->state, false);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Was unable to set the relay state. Error: %s", esp_err_to_name(err));
+        }
+
+        // Free the memory allocated for the NVS key
+        free(relay_nvs_key);
+        free(relay);
     }
 
     // not, let's iterate via all sensors stored in the memory and try load/initiate them
@@ -337,6 +354,10 @@ esp_err_t device_settings_init() {
         }
         if(load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
             ESP_LOGI(TAG, "Found sensor contact channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+            // cleanup
+            if (INIT_SENSORS_ON_LOAD) {
+                ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+            }
         } else {
             ESP_LOGW(TAG, "Unable to find sensor contact channel %i stored in NVS at %s. Initiating...", i_channel, relay_nvs_key);
 
@@ -356,10 +377,16 @@ esp_err_t device_settings_init() {
                 free(relay);
                 return ESP_FAIL;
             }
-            // Free the memory allocated for the NVS key
-            free(relay_nvs_key);
-            free(relay);
+            
+            // cleanup
+            if (INIT_SENSORS_ON_GET) {
+                ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+            }
         }
+
+        // Free the memory allocated for the NVS key
+        free(relay_nvs_key);
+        free(relay);
     }
 
     return ESP_OK;

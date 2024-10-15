@@ -1146,7 +1146,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
 
     // save to NVS: actuators -- via setting the state, sensors -- just saving
     if (relay.type == RELAY_TYPE_ACTUATOR) {
-        err = relay_set_state(&relay, relay.state);
+        err = relay_set_state(&relay, relay.state, true);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to set relay state and save it to NVS");
             cJSON_Delete(json);

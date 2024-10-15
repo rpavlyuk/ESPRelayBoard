@@ -912,11 +912,12 @@ esp_err_t relay_all_sensors_register_isr() {
  * 
  * @param[in, out] relay Pointer to the relay_unit_t structure
  * @param state Relay state relay_state_t to set
+ * @param persist Save the update state to NVS. true: sets GPIO level and saves the relay to NVS; false: just sets GPIO level
  * @return
  *     - ESP_OK: Successfully completed all operations.
  *     - ESP_ERR_INVALID_ARG: relay is NULL.
  */
-esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state) {
+esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist) {
 
     // is relay an instance ?
     if (relay == NULL) {
@@ -931,10 +932,12 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state) {
     }
 
     // Init GPIO
-    if (relay->gpio_pin == NULL) {
+    if (relay->io_conf == NULL) {
         if (relay_gpio_init(relay) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to init GPIO pin before setting the state. Channel (%d). ", relay->channel);
             return ESP_FAIL;
+        } else {
+            ESP_LOGI(TAG, "Initiated GPIO pin. Channel (%d). ", relay->channel);
         }
     }
 
@@ -943,20 +946,24 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state) {
         ESP_LOGE(TAG, "Failed to set GPIO level. Channel (%d), level (%d).", relay->channel, relay->state);
         ESP_ERROR_CHECK(relay_gpio_deinit(relay));
         return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, ">|>|>| Setting GPIO level. Channel (%d), level (%d).", relay->channel, relay->state);
     }
 
     // Update the state in the object once it was successfully set to GPIO
     relay->state = state;
 
-    // persist new state to NVS
-    char *relay_nvs_key = get_relay_nvs_key(relay->channel);
-    if (relay_nvs_key == NULL) {
-        ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay->channel);
-        return ESP_FAIL; // Handle error accordingly
-    }
-    if (save_relay_to_nvs(relay_nvs_key, relay) != ESP_OK) {
-        ESP_LOGE(TAG, "Unable to save relay unit to NVS");
-        return ESP_FAIL;
+    if (persist) {
+        // persist new state to NVS
+        char *relay_nvs_key = get_relay_nvs_key(relay->channel);
+        if (relay_nvs_key == NULL) {
+            ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay->channel);
+            return ESP_FAIL; // Handle error accordingly
+        }
+        if (save_relay_to_nvs(relay_nvs_key, relay) != ESP_OK) {
+            ESP_LOGE(TAG, "Unable to save relay unit to NVS");
+            return ESP_FAIL;
+        }
     }
 
     return ESP_OK;

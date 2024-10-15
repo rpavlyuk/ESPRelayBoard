@@ -68,7 +68,7 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay);
 esp_err_t relay_sensor_register_isr(relay_unit_t *relay);
 esp_err_t relay_sensor_gpio_state_refresh(relay_unit_t *relay);
 
-esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state);
+esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist);
 
 static void IRAM_ATTR gpio_isr_handler(void *arg);
 void gpio_event_task(void *arg);
