@@ -89,7 +89,8 @@ esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count);
 esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count);
 
 esp_err_t relay_all_sensors_register_isr();
-
 esp_err_t free_relays_array(relay_unit_t *relay_list, size_t count);
+
+esp_err_t relay_publish_all_to_mqtt();
 
 #endif

@@ -99,7 +99,11 @@ void app_main(void) {
                 return;
             }
 
+            /* Start MQTT publishig queue */
             ESP_ERROR_CHECK(start_mqtt_queue_task());
+
+            /* Do initial push of all unit states to MQTT */
+            ESP_ERROR_CHECK(relay_publish_all_to_mqtt());
 
             /*
             // _DEVICE_ENABLE_HA

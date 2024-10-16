@@ -472,7 +472,7 @@ esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
     } else {
         ESP_LOGE(TAG, "Failed to save relay to NVS: %s", esp_err_to_name(err));
     }
-    
+
     free(relay_copy);
     return err;
 }
@@ -1046,6 +1046,57 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
             return ESP_FAIL;
         }
     }
+
+    return ESP_OK;
+}
+
+
+/**
+ * @brief Publishes all relay units' states to MQTT.
+ * 
+ * This function loads all relay units from NVS using `get_all_relay_units()`, 
+ * generates the NVS key for each relay, and then publishes the relay's state 
+ * to MQTT using `trigger_mqtt_publish()`. The function ensures proper error 
+ * handling and memory management by freeing any dynamically allocated memory 
+ * (like relay keys and relay list).
+ * 
+ * @return 
+ *      - ESP_OK on success
+ *      - ESP_FAIL if any step in the process fails
+ */
+esp_err_t relay_publish_all_to_mqtt() {
+    relay_unit_t *relay_list = NULL;
+    uint16_t total_count = 0;
+    esp_err_t err;
+
+    // Load all relay units
+    err = get_all_relay_units(&relay_list, &total_count);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load relay units from NVS.");
+        return err;
+    }
+
+    // Iterate through each relay and publish to MQTT
+    for (uint16_t i = 0; i < total_count; i++) {
+        // Get the NVS key for the relay
+        char *relay_key = get_unit_nvs_key(&relay_list[i]);
+        if (relay_key == NULL) {
+            ESP_LOGE(TAG, "Failed to get NVS key for relay channel %d.", relay_list[i].channel);
+            continue;  // Move to the next relay if key generation fails
+        }
+
+        // Trigger MQTT publish for each relay
+        err = trigger_mqtt_publish(relay_key, relay_list[i].type);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to publish relay channel %d to MQTT.", relay_list[i].channel);
+        }
+
+        // Free the dynamically allocated relay_key
+        free(relay_key);
+    }
+
+    // Free the dynamically allocated relay_list
+    free(relay_list);
 
     return ESP_OK;
 }
