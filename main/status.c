@@ -187,3 +187,14 @@ char *serialize_all_device_data(device_status_t *status) {
     return json;
 
 }
+
+/**
+ * @brief: Dump current task information to stdout
+ * 
+ */
+void dump_current_task() {
+    TaskHandle_t current_task = xTaskGetCurrentTaskHandle();  // Get handle of current task
+    const char *task_name = pcTaskGetName(current_task);      // Get the task's name
+
+    ESP_LOGI(TAG, "Current task: %s", task_name);      // Log the task name
+}

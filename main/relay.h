@@ -10,8 +10,8 @@
  * @brief: Relay state (ON or OFF)
  */
 typedef enum {
-    RELAY_STATE_ON,
-    RELAY_STATE_OFF
+    RELAY_STATE_OFF,
+    RELAY_STATE_ON
 } relay_state_t;
 
 /**
@@ -79,6 +79,7 @@ esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay);
 
 char *get_relay_nvs_key(int channel);
 char *get_contact_sensor_nvs_key(int channel);
+char *get_unit_nvs_key(const relay_unit_t *relay);
 
 char* serialize_relay_unit(const relay_unit_t *relay);
 esp_err_t deserialize_relay_unit(const char *json_str, relay_unit_t *relay);

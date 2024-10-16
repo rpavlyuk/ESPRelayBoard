@@ -11,6 +11,8 @@
 #include "common.h"
 #include "settings.h"
 #include "relay.h"
+#include "mqtt.h"
+#include "status.h"
 
 const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT] = {4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31};
 
@@ -349,6 +351,14 @@ void gpio_event_task(void *arg) {
                 ESP_LOGE(TAG, "Failed to save contact sensor state to NVS");
             }
 
+            // publish to MQTT
+            uint16_t mqtt_connection_mode;
+            ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
+            if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && g_mqtt_ready) {
+                mqtt_publish_relay_data(relay);
+                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+            }
+
             free(relay_nvs_key);  // Free the dynamically allocated NVS key
             // cleanup
             if (INIT_SENSORS_ON_LOAD) {
@@ -438,12 +448,32 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay) {
  * @return esp_err_t result of the NVS operation
  */
 esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
-    esp_err_t err = nvs_write_blob(S_NAMESPACE, key, relay, sizeof(relay_unit_t));
+
+    if (relay == NULL) {
+        ESP_LOGE(TAG, "Got NULL as relay. Cannot save.");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // create a working copy
+    relay_unit_t *relay_copy = (relay_unit_t *)malloc(sizeof(relay_unit_t));
+    if (relay_copy == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for relay copy");
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(relay_copy, relay, sizeof(relay_unit_t));
+
+    //reset the io_conf property
+    relay_copy->io_conf = NULL;
+
+    // save the copy to NVS
+    esp_err_t err = nvs_write_blob(S_NAMESPACE, key, relay_copy, sizeof(relay_unit_t));
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Relay successfully saved to NVS under key: %s", key);
     } else {
         ESP_LOGE(TAG, "Failed to save relay to NVS: %s", esp_err_to_name(err));
     }
+    
+    free(relay_copy);
     return err;
 }
 
@@ -467,6 +497,8 @@ esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay) {
             // raise just warning
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for actuator relay unit (%d)", relay->gpio_pin, relay->channel);
         }
+    } else {
+        relay->io_conf = NULL;
     }
 
     ESP_LOGI(TAG, "Relay actuator loaded successfully from NVS under key: %s", key);
@@ -492,7 +524,10 @@ esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay) {
             // raise just warning
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for contact sensor relay unit (%d)", relay->gpio_pin, relay->channel);
         }
+    } else {
+        relay->io_conf = NULL;
     }
+
 
     ESP_LOGI(TAG, "Relay sensor loaded successfully from NVS under key: %s", key);
     return ESP_OK;
@@ -551,6 +586,35 @@ char *get_contact_sensor_nvs_key(int channel) {
 
     return key;
 }
+
+
+/**
+ * @brief: Get NVS key for the provided relay
+ * 
+ * @param relay Pointer to the relay_unit_t structure
+ * @return Dynamically allocated string with the NVS key, or NULL if type or other params are out of range
+ */
+char *get_unit_nvs_key(const relay_unit_t *relay) {
+
+    // is relay an instance ?
+    if (relay == NULL) {
+        ESP_LOGE(TAG, "NULL value for relay unit");
+        return NULL;
+    }
+    // Configure GPIO based on relay type (actuator or sensor)
+    switch (relay->type) {
+        case RELAY_TYPE_SENSOR:
+            return get_contact_sensor_nvs_key(relay->channel);
+            break;
+        case RELAY_TYPE_ACTUATOR:
+            return get_relay_nvs_key(relay->channel);
+            break;
+        default:
+            ESP_LOGE(TAG, "Invalid relay type: %d", relay->type);
+            return NULL;
+    }
+}
+
 
 /**
  * @brief Serialize relay_unit_t structure to a JSON string
@@ -919,6 +983,10 @@ esp_err_t relay_all_sensors_register_isr() {
  */
 esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist) {
 
+    dump_current_task();
+
+    bool gpio_init_made = false;
+
     // is relay an instance ?
     if (relay == NULL) {
         ESP_LOGE(TAG, "NULL value for relay unit");
@@ -938,6 +1006,7 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
             return ESP_FAIL;
         } else {
             ESP_LOGI(TAG, "Initiated GPIO pin. Channel (%d). ", relay->channel);
+            gpio_init_made = true;
         }
     }
 
@@ -947,11 +1016,23 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
         ESP_ERROR_CHECK(relay_gpio_deinit(relay));
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, ">|>|>| Setting GPIO level. Channel (%d), level (%d).", relay->channel, relay->state);
+        ESP_LOGI(TAG, ">|>|>| Successfully set GPIO level. Channel (%d), level (%d).", relay->channel, relay->state);
     }
 
     // Update the state in the object once it was successfully set to GPIO
-    relay->state = state;
+    relay->state = (relay_state_t)state;
+
+    // reset GPIO pin to free memory
+    if (gpio_init_made) {
+        ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+    }
+
+    // update via MQTT
+    uint16_t mqtt_connection_mode;
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
+    if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && g_mqtt_ready) {
+       ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+    }
 
     if (persist) {
         // persist new state to NVS

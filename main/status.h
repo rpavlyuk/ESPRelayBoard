@@ -33,4 +33,6 @@ char *serialize_device_status(device_status_t *s_data);
 cJSON *device_all_to_JSON(device_status_t *status);
 char *serialize_all_device_data(device_status_t *status);
 
+void dump_current_task();
+
 #endif // STATUS_H

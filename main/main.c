@@ -12,6 +12,7 @@
 #include "web.h"
 #include "status.h"
 #include "relay.h"
+#include "mqtt.h"
 
 void app_main(void) {
 
@@ -52,7 +53,7 @@ void app_main(void) {
     // Initialize the default event loop
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-        if (_DEVICE_ENABLE_WIFI) {
+    if (_DEVICE_ENABLE_WIFI) {
         ESP_LOGI(TAG, "WIFI ENABLED!");
 
         /* Initialize WIFI */
@@ -82,6 +83,31 @@ void app_main(void) {
             ESP_LOGI(TAG, "WEB ENABLED!");
 
             xTaskCreate(run_http_server, "run_http_server", 8192, NULL, 5, NULL);
+        }
+
+        uint16_t mqtt_connection_mode;
+        ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
+
+        // start MQTT client
+        if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode) {
+            ESP_LOGI(TAG, "MQTT ENABLED!");
+            if (mqtt_init() == ESP_OK) {
+                ESP_LOGI(TAG, "Connected to MQTT server!");
+                g_mqtt_ready = true;
+            } else {
+                ESP_LOGE(TAG, "Unable to connect to MQTT broker");
+                return;
+            }
+
+            ESP_ERROR_CHECK(start_mqtt_queue_task());
+
+            /*
+            // _DEVICE_ENABLE_HA
+            if (_DEVICE_ENABLE_HA) {
+                ESP_LOGI(TAG, "HA device status ENABLED!");
+                xTaskCreate(mqtt_device_config_task, "mqtt_device_config_task", 4096, NULL, 5, NULL);
+            }
+            */
         }
 
     }

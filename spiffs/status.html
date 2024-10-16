@@ -126,8 +126,8 @@
                     let actuatorsHtml = '<h3>Actuators</h3><table class="table table-striped">';
                     actuatorsHtml += '<thead><tr><th>Relay Key</th><th>Channel</th><th>GPIO</th><th>State</th></tr></thead><tbody>';
                     
-                    let sensorsHtml = '<h3>Sensors</h3><table class="table table-striped">';
-                    sensorsHtml += '<thead><tr><th>Relay Key</th><th>Channel</th><th>GPIO</th><th>Contact State (OPEN/CLOSED)</th></tr></thead><tbody>';
+                    let sensorsHtml = '<h3>Contact Sensors</h3><table class="table table-striped">';
+                    sensorsHtml += '<thead><tr><th>Relay Key</th><th>Channel</th><th>GPIO</th><th>Contact State (to GND)</th></tr></thead><tbody>';
 
                     // Iterate through the relays
                     response.data.forEach(function(relay) {
