@@ -16,6 +16,7 @@
 #include "hass.h"
 
 static QueueHandle_t mqtt_event_queue = NULL; 
+static QueueHandle_t mqtt_command_queue = NULL;
 
 esp_mqtt_client_handle_t mqtt_client = NULL;
 bool mqtt_connected = false;
@@ -35,15 +36,36 @@ bool g_mqtt_ready = false;
  */
 esp_err_t start_mqtt_queue_task(void) {
 
-// Create the event queue
+    // wait for MQTT to become ready
+    int attempts = 0, max_attempts = 60;
+    while(!g_mqtt_ready) {
+        ESP_LOGI(TAG, "+ + + + Waiting for MQTT connection to become ready...");
+        attempts++;
+        if (attempts > max_attempts) {
+            ESP_LOGI(TAG, "MQTT ever became ready");
+            return ESP_FAIL;
+        }
+        vTaskDelay(1000/portTICK_PERIOD_MS);
+    }
+
+    // Create the event queue
     mqtt_event_queue = xQueueCreate(MQTT_QUEUE_LENGTH, sizeof(relay_event_t));
     if (mqtt_event_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create event queue for MQTT");
         return ESP_FAIL;
     }
-
     // Start the MQTT event task
     xTaskCreate(mqtt_event_task, "mqtt_event_task", 8192, NULL, 5, NULL);
+
+
+    // mqtt_subscribe_relays_task
+    mqtt_command_queue = xQueueCreate(MQTT_QUEUE_LENGTH, sizeof(mqtt_command_event_t));
+    if (mqtt_command_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create event queue for MQTT command subscriptions");
+        return ESP_FAIL;
+    }
+    // Start the MQTT command subscription
+    xTaskCreate(mqtt_subscribe_relays_task, "mqtt_subscribe_relays_task", 8192, NULL, 5, NULL);
 
     return ESP_OK;
 }
@@ -233,10 +255,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
     esp_mqtt_event_handle_t event = event_data;
+
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         mqtt_connected = true;  // Set flag when connected
+        g_mqtt_ready = true;    // Set flag its ready
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -252,11 +276,51 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_PUBLISHED:
         ESP_LOGD(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
         break;
-    case MQTT_EVENT_DATA:
+    case MQTT_EVENT_DATA: {
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-        printf("DATA=%.*s\r\n", event->data_len, event->data);
+
+        // Log the topic and data properly using the length
+        ESP_LOGI(TAG, "TOPIC=%.*s, len: %i", event->topic_len, event->topic, event->topic_len);
+        ESP_LOGI(TAG, "DATA=%.*s, len: %i", event->data_len, event->data, event->data_len);
+
+        // Dynamically allocate memory for topic and data buffers
+        char *topic_buf = (char *)malloc(event->topic_len + 1);  // +1 for the null terminator
+        char *data_buf = (char *)malloc(event->data_len + 1);  // +1 for the null terminator
+
+        if (topic_buf == NULL || data_buf == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for MQTT topic or data buffers");
+            free(topic_buf);  // Ensure any allocated memory is freed
+            free(data_buf);
+            break;
+        }
+
+        // Copy the topic and data, ensuring they are null-terminated
+        strncpy(topic_buf, event->topic, event->topic_len);
+        topic_buf[event->topic_len] = '\0';  // Null-terminate the string
+
+        strncpy(data_buf, event->data, event->data_len);
+        data_buf[event->data_len] = '\0';  // Null-terminate the string
+
+        // Log to ensure correct handling of topic and data
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA: Got MQTT topic to extract relay key from: %s", topic_buf);
+
+        // Create the command event and resolve the relay key
+        mqtt_command_event_t command_event;
+        command_event.relay_key = resolve_key_from_topic(topic_buf);  // Use the topic buffer
+        if (command_event.relay_key == NULL) {
+            ESP_LOGE(TAG, "Failed to resolve relay key from topic %s (NULL)", topic_buf);
+            break;  // Handle the error
+        }
+
+        // Handle state based on data buffer
+        command_event.state = (strcmp(data_buf, "True") == 0 || strcmp(data_buf, "true") == 0) ? RELAY_STATE_ON : RELAY_STATE_OFF;
+
+        // Send the event to the queue
+        if (xQueueSend(mqtt_command_queue, &command_event, portMAX_DELAY) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to send MQTT command event to the queue");
+        }
         break;
+    }
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
@@ -448,7 +512,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/state", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->state);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 1);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -509,7 +573,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     char *relay_json = serialize_relay_unit(relay);
     if (relay_json != NULL) {
         ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", relay_json, topic);
-        msg_id = esp_mqtt_client_publish(mqtt_client, topic, relay_json, 0, 1, 0);
+        msg_id = esp_mqtt_client_publish(mqtt_client, topic, relay_json, 0, 1, 1);
         if (msg_id < 0) {
             ESP_LOGW(TAG, "Topic %s not published", topic);
             is_error = true;
@@ -522,6 +586,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     // Free allocated resources for MQTT prefix and device ID
     free(mqtt_prefix);
     free(device_id);
+    free(relay_key);
 
     if (is_error) {
         ESP_LOGE(TAG, "There were errors when publishing relay data to MQTT");
@@ -530,4 +595,408 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
         ESP_LOGI(TAG, "MQTT relay data published successfully.");
         return ESP_OK;
     }
+}
+
+// Publish relay HA device auto-discovery to MQTT
+esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *mqtt_prefix, const char *homeassistant_prefix) {
+    
+    uint16_t mqtt_connection_mode;
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
+    if (mqtt_connection_mode < (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
+        ESP_LOGW(TAG, "MQTT disabled in device settings. Publishing skipped.");
+        return ESP_OK;
+    }
+
+    // wait for MQTT to connect
+    int i = 0, c_limit = 10;
+    while(!mqtt_connected) {
+        ESP_LOGI(TAG, "Waiting for MQTT connection to become ready...");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (++i > c_limit) {
+            ESP_LOGE(TAG, "MQTT never became ready after %i seconds", c_limit);
+            return ESP_FAIL;
+        }
+    }
+    
+    char topic[512];
+    char payload[512];
+    char discovery_path[256];
+    int msg_id;
+    bool is_error = false;
+    const char *metric = HA_DEVICE_METRIC_STATE;
+    const char *device_class = HA_DEVICE_DEVICE_CLASS;
+    char *relay_key;
+
+    relay_unit_t *relay_list = NULL;
+    uint16_t total_count = 0;
+
+
+    // Load all relay units
+    esp_err_t err = get_all_relay_units(&relay_list, &total_count);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load relay units from NVS.");
+        return err;
+    }
+    if (!total_count) {
+        ESP_LOGW(TAG, "No relays found to update HA auto-discovery records for.");
+        return ESP_OK;
+    }
+
+    ha_entity_discovery_t *entity_discovery = (ha_entity_discovery_t *)malloc(sizeof(ha_entity_discovery_t));
+    char *discovery_json;
+
+    // Iterate through each relay and publish to MQTT
+    for (uint16_t i = 0; i < total_count; i++) {
+        // Get the NVS key for the relay
+        relay_key = get_unit_nvs_key(&relay_list[i]);
+        if (relay_key == NULL) {
+            ESP_LOGE(TAG, "Failed to get NVS key for relay channel %d.", relay_list[i].channel);
+            continue;  // Move to the next relay if key generation fails
+        }
+
+        if (ha_entity_discovery_fullfill(entity_discovery, device_class, relay_key, metric,relay_list[i].type) != ESP_OK) {
+            ESP_LOGE(TAG, "Unable to initiate entity discovery for %s", metric);
+            return ESP_FAIL;
+        }
+
+        discovery_json = ha_entity_discovery_print_JSON(entity_discovery);
+        ESP_LOGI(TAG, "Device discovery serialized:\n%s", discovery_json);
+
+        memset(discovery_path, 0, sizeof(discovery_path));
+        sprintf(discovery_path, "%s/%s", homeassistant_prefix, HA_DEVICE_FAMILY);
+        sprintf(topic, "%s/%s_%s/%s/%s", discovery_path, device_id, relay_key, HA_DEVICE_FAMILY, HA_DEVICE_CONFIG_PATH);
+
+        msg_id = esp_mqtt_client_publish(mqtt_client, topic, discovery_json, 0, 1, 1);
+        if (msg_id < 0) {
+            ESP_LOGW(TAG, "Discovery topic %s not published", topic);
+            is_error = true;
+        }
+    }
+
+    // tell we are online
+    msg_id = esp_mqtt_client_publish(mqtt_client, entity_discovery->availability->topic, ha_availability_entry_print_JSON("online"), 0, 0, true);
+    if (msg_id < 0) {
+        ESP_LOGW(TAG, "Discovery topic %s not published", topic);
+        is_error = true;
+    }
+    ha_entity_discovery_free(entity_discovery);
+
+    // free relays list
+    ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
+
+    if (is_error) {
+        ESP_LOGE(TAG, "There were errors when publishing Home Assistant device configuration to MQTT.");
+        return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, "Home Assistant device configuration published.");
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Task for regular device auto-discovery updates for Home Assistant
+ */
+void mqtt_device_config_task(void *param) {
+    char *device_id = NULL;
+    char *mqtt_prefix = NULL;
+    char *ha_prefix = NULL;
+    uint32_t ha_upd_intervl;
+    uint32_t ha_retry_interval = 5000;
+    bool ha_update_successful = false;
+
+    const char* LOG_TAG = "HA MQTT DEVICE";
+      
+    // Load MQTT prefix from NVS
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PREFIX, &mqtt_prefix));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
+    ESP_ERROR_CHECK(nvs_read_uint32(S_NAMESPACE, S_KEY_HA_UPDATE_INTERVAL, &ha_upd_intervl));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_HA_PREFIX, &ha_prefix));
+
+    ESP_LOGI(LOG_TAG, "Starting HA MQTT device update task. Update interval: %lu minutes.", (uint32_t) ha_upd_intervl / 1000 / 60);
+
+    while (true) {
+        // Update Home Assistant device configuration
+        ESP_LOGI(LOG_TAG, "Updating HA device configurations...");
+        if (mqtt_publish_home_assistant_config(device_id, mqtt_prefix, ha_prefix) != ESP_OK) {
+            ha_update_successful = false;
+            ESP_LOGI(LOG_TAG, "HA device configurations end up with errors. Will retry in %li seconds.", (uint32_t)ha_retry_interval/1000);
+        } else {
+            ha_update_successful = true;
+            ESP_LOGI(LOG_TAG, "HA device configurations update complet. Next update in %li seconds.", (uint32_t)ha_upd_intervl/1000);
+        }
+
+        // Wait for the defined interval before the next update
+        vTaskDelay(ha_update_successful?ha_upd_intervl:ha_retry_interval);
+    }
+
+    free(device_id);
+    free(mqtt_prefix);
+    free(ha_prefix);
+}
+
+/**
+ * @brief: Resolve the device object from MQTT topic
+ */
+relay_unit_t *resolve_relay_from_topic(const char *topic) {
+
+    ESP_LOGI(TAG, "Got MQTT topic to match the relay for: %s", topic);
+
+    // Extract the relay key from the topic
+    char *relay_key = resolve_key_from_topic(topic);
+    if (relay_key == NULL) {
+        ESP_LOGE(TAG, "Failed to resolve relay key from topic: %s (NULL)", topic);
+        return NULL;
+    }
+
+    ESP_LOGI(TAG, "Extracted relay key: %s", relay_key);
+
+    // Allocate memory for the relay
+    relay_unit_t *relay = (relay_unit_t *)malloc(sizeof(relay_unit_t));
+    if (relay == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for relay unit");
+        free(relay_key);  // Free the relay key before returning
+        return NULL;
+    }
+
+    // Load the relay from NVS
+    esp_err_t err = load_relay_actuator_from_nvs(relay_key, relay);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load relay actuator from NVS for key: %s", relay_key);
+        free(relay_key);
+        free(relay);  // Free the allocated relay before returning
+        return NULL;
+    }
+
+    // Free the dynamically allocated relay key
+    free(relay_key);
+
+    // Return the relay pointer
+    return relay;
+}
+
+/**
+ * @brief: Get relay key by MQTT topic
+ */
+char *resolve_key_from_topic(const char *topic) {
+    return get_element_from_path(topic, 2);
+}
+
+/**
+ * @brief Extracts the element at a specific index from a given path.
+ *
+ * This function splits the path using '/' as a delimiter and retrieves the element
+ * at the specified zero-based index.
+ *
+ * @param path The full MQTT topic path (e.g., "relay_board/DCDA0C7E08A4/relay_ch_1/switch/set")
+ * @param index The zero-based index of the element to retrieve (e.g., 2 to get "relay_ch_1")
+ * @return A dynamically allocated string containing the element at the specified index,
+ *         or NULL if the index is out of bounds or on any error. The caller is responsible
+ *         for freeing the returned string.
+ */
+char *get_element_from_path(const char *path, int index) {
+    if (path == NULL || index < 0) {
+        ESP_LOGE(TAG, "Invalid input: path is NULL or index is negative.");
+        return NULL;
+    }
+
+    // Split the path into tokens
+    size_t count = 0;
+    char *path_copy = strdup(path);  // Copy the path since strtok modifies it
+    char **tokens = str_split(path_copy, '/', &count);
+
+    // Check if index is out of bounds
+    if (index >= (int)count) {
+        ESP_LOGE(TAG, "Index out of bounds: count(%i), index(%i)", count, index);
+        free(path_copy);  // Free the duplicated path
+        free(tokens);     // Free the tokens array
+        return NULL;
+    }
+
+    // Allocate memory for the selected element and return it
+    char *result = strdup(tokens[index]);
+
+    // Free the allocated memory used by tokens
+    free(path_copy);
+    free(tokens);  // Free the tokens array itself
+
+    return result;  // Caller is responsible for freeing this
+}
+
+
+/**
+ * @brif: Split string by delimiter
+ */
+char** str_split(char* a_str, const char a_delim, size_t *element_count)
+{
+    char** result    = 0;
+    size_t count     = 0;
+    char* tmp        = a_str;
+    char* last_comma = 0;
+    char delim[2];
+    delim[0] = a_delim;
+    delim[1] = 0;
+
+    /* Count how many elements will be extracted. */
+    while (*tmp)
+    {
+        if (a_delim == *tmp)
+        {
+            count++;
+            last_comma = tmp;
+        }
+        tmp++;
+    }
+
+    /* Add space for trailing token. */
+    count += last_comma < (a_str + strlen(a_str) - 1);
+
+    /* Add space for terminating null string so caller
+       knows where the list of returned strings ends. */
+    count++;
+
+    result = malloc(sizeof(char*) * count);
+
+    if (result)
+    {
+        size_t idx  = 0;
+        char* token = strtok(a_str, delim);
+
+        while (token)
+        {
+            assert(idx < count);
+            *(result + idx++) = strdup(token);
+            token = strtok(0, delim);
+        }
+        assert(idx == count - 1);
+        *(result + idx) = 0;
+    }
+
+    *element_count = count;
+    return result;
+}
+
+
+/**
+ * @brief: Subscribe to MQTT relay update commands
+ */
+void mqtt_subscribe_relays_task(void *arg) {
+    mqtt_command_event_t event;
+
+    while (1) {
+        if (xQueueReceive(mqtt_command_queue, &event, portMAX_DELAY)) {
+
+            ESP_LOGI(TAG, "Recevied subscription event: key (%s), state (%i)", event.relay_key, (int)event.state);
+
+            relay_type_t relay_type = get_relay_type_from_key(event.relay_key);
+            if (relay_type != RELAY_TYPE_ACTUATOR) {
+                ESP_LOGW(TAG, "Wrong relay type got request for state update (key: %s, type: %i). Ignoring.", event.relay_key, relay_type);
+                continue;
+            }
+            relay_unit_t *relay = (relay_unit_t *)malloc(sizeof(relay_unit_t));
+            if (load_relay_actuator_from_nvs(event.relay_key, relay) == ESP_OK) {
+                relay_set_state(relay, event.state, true);  // Update the relay state
+            }
+            free(event.relay_key);  // Free the allocated key
+            if (INIT_RELAY_ON_LOAD) {
+                relay_gpio_deinit(relay);
+            }
+            free(relay);
+        }
+    }
+}
+
+/**
+ * @brief: Subscribe relay to MQTT topic
+ */
+esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
+
+    dump_current_task();
+
+    if (relay == NULL) {
+        ESP_LOGE(TAG, "Got NULL as relay in mqtt_relay_subscribe.");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Subscribe relay/sensor information to receive information from MQTT. Channel (%i), type (%i)", relay->channel, relay->type);
+
+    uint16_t mqtt_connection_mode;
+    esp_err_t err;
+
+    // Read MQTT connection mode
+    err = nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read MQTT connection mode from NVS");
+        return ESP_FAIL;
+    }
+
+    // Check if MQTT is disabled in the device settings
+    if (mqtt_connection_mode < (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
+        ESP_LOGW(TAG, "MQTT disabled in device settings. Publishing skipped.");
+        return ESP_OK;
+    }
+
+    // Ensure MQTT client is initialized and connected
+    if (mqtt_client == NULL || !mqtt_connected) {
+        ESP_LOGW(TAG, "MQTT client is not initialized or not connected.");
+        if (mqtt_connection_mode > (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
+            ESP_LOGI(TAG, "Restoring connection to MQTT...");
+            if (mqtt_init() != ESP_OK) {
+                ESP_LOGE(TAG, "MQTT client re-init failed. Will not publish any data to MQTT.");
+                return ESP_FAIL;
+            }
+        } else {
+            ESP_LOGW(TAG, "Re-connect disabled by MQTT mode setting. Visit device WEB interface to adjust it.");
+            return ESP_FAIL;
+        }
+    }
+
+    // Allocate and read the MQTT prefix
+    char *mqtt_prefix = NULL;
+    err = nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PREFIX, &mqtt_prefix);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read MQTT prefix from NVS");
+        return err;
+    }
+
+    // Allocate and read the device ID
+    char *device_id = NULL;
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read device ID from NVS");
+        free(mqtt_prefix);  // Clean up previous allocation
+        return err;
+    }
+
+    // Allocate memory for the command topic
+    size_t topic_len = strlen(mqtt_prefix) + strlen(device_id) + strlen(get_unit_nvs_key(relay)) + strlen(HA_DEVICE_FAMILY) + strlen("/set") + 4; // extra for slashes and null terminator
+    char *command_topic = (char *)malloc(topic_len);
+    if (command_topic == NULL) {
+        free(mqtt_prefix);
+        free(device_id);
+        ESP_LOGE(TAG, "Failed to allocate memory for command topic");
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Format the command topic
+    snprintf(command_topic, topic_len, "%s/%s/%s/%s/set", mqtt_prefix, device_id, get_unit_nvs_key(relay), HA_DEVICE_FAMILY);
+
+    // Subscribe to the command topic
+    int msg_id = esp_mqtt_client_subscribe_single(mqtt_client, command_topic, 1);  // QoS 1 for reliability
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "Failed to subscribe to topic: %s", command_topic);
+        free(mqtt_prefix);
+        free(device_id);
+        free(command_topic);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Subscribed to topic: %s", command_topic);
+
+    // Free allocated memory for command topic
+    free(mqtt_prefix);
+    free(device_id);
+    free(command_topic);
+
+    return ESP_OK;
 }

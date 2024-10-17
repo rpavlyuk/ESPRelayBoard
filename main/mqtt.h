@@ -22,6 +22,15 @@ typedef struct {
     relay_type_t relay_type;    // Type of relay (e.g., actuator or sensor)
 } relay_event_t;
 
+/**
+ * @brief: Event data used to communicate between MQTT subscription event queue and other tasks
+ */
+typedef struct {
+    char *relay_key;
+    relay_state_t state;
+} mqtt_command_event_t;
+
+
 // Define the SPIFFS configuration
 #define CA_CERT_PATH "/spiffs/ca.crt"
 
@@ -51,5 +60,16 @@ void cleanup_mqtt();
 
 // publish relay to MQTT
 esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay);
+
+esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *mqtt_prefix, const char *homeassistant_prefix);
+void mqtt_device_config_task(void *param);
+
+void mqtt_subscribe_relays_task(void *arg);
+relay_unit_t *resolve_relay_from_topic(const char *topic);
+char *resolve_key_from_topic(const char *topic);
+char *get_element_from_path(const char *path, int index);
+char** str_split(char* a_str, const char a_delim, size_t *element_count);
+
+esp_err_t mqtt_relay_subscribe(relay_unit_t *relay);
 
 #endif // MQTT_H

@@ -617,6 +617,32 @@ char *get_unit_nvs_key(const relay_unit_t *relay) {
 
 
 /**
+ * @brief Determines the relay type from the relay_key.
+ * 
+ * This function checks the prefix of the provided relay_key and determines whether
+ * the relay is an actuator or a contact sensor based on the prefix.
+ * 
+ * @param[in] relay_key The key that identifies the relay (e.g., "relay_ch_0" or "relay_sn_1").
+ * @return relay_type_t The type of relay (RELAY_TYPE_ACTUATOR or RELAY_TYPE_SENSOR). 
+ *         Returns -1 if the prefix doesn't match.
+ */
+relay_type_t get_relay_type_from_key(const char *relay_key) {
+    // Check for the actuator prefix
+    if (strncmp(relay_key, S_KEY_CH_PREFIX, strlen(S_KEY_CH_PREFIX)) == 0) {
+        return RELAY_TYPE_ACTUATOR;
+    }
+    // Check for the contact sensor prefix
+    else if (strncmp(relay_key, S_KEY_SN_PREFIX, strlen(S_KEY_SN_PREFIX)) == 0) {
+        return RELAY_TYPE_SENSOR;
+    }
+    // Return -1 for unknown types
+    else {
+        ESP_LOGE(TAG, "Unknown relay type for key: %s", relay_key);
+        return -1;
+    }
+}
+
+/**
  * @brief Serialize relay_unit_t structure to a JSON string
  *
  * This function takes a pointer to a relay_unit_t structure and serializes its fields 
@@ -1056,7 +1082,8 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
  * 
  * This function loads all relay units from NVS using `get_all_relay_units()`, 
  * generates the NVS key for each relay, and then publishes the relay's state 
- * to MQTT using `trigger_mqtt_publish()`. The function ensures proper error 
+ * to MQTT using `trigger_mqtt_publish()`. The function also subscribes the relays
+ * to command MQTT topics to allow settings the state. The function ensures proper error 
  * handling and memory management by freeing any dynamically allocated memory 
  * (like relay keys and relay list).
  * 
@@ -1089,6 +1116,12 @@ esp_err_t relay_publish_all_to_mqtt() {
         err = trigger_mqtt_publish(relay_key, relay_list[i].type);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to publish relay channel %d to MQTT.", relay_list[i].channel);
+        }
+
+        // subscribe relay unit to MQTT set topic
+        err = mqtt_relay_subscribe(&relay_list[i]);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to subscribe relay channel %d to MQTT.", relay_list[i].channel);
         }
 
         // Free the dynamically allocated relay_key

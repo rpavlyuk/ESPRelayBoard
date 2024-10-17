@@ -17,7 +17,14 @@
 void app_main(void) {
 
     bool wifi_provisioned = false;
+
+    /* Logging setup */
+    esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("mqtt_client", ESP_LOG_VERBOSE);
+    esp_log_level_set("esp-tls", ESP_LOG_VERBOSE);
     
+    /* Initializations */
+
     // Initialize NVS
     ESP_ERROR_CHECK(nvs_init());
 
@@ -93,7 +100,6 @@ void app_main(void) {
             ESP_LOGI(TAG, "MQTT ENABLED!");
             if (mqtt_init() == ESP_OK) {
                 ESP_LOGI(TAG, "Connected to MQTT server!");
-                g_mqtt_ready = true;
             } else {
                 ESP_LOGE(TAG, "Unable to connect to MQTT broker");
                 return;
@@ -105,13 +111,11 @@ void app_main(void) {
             /* Do initial push of all unit states to MQTT */
             ESP_ERROR_CHECK(relay_publish_all_to_mqtt());
 
-            /*
             // _DEVICE_ENABLE_HA
             if (_DEVICE_ENABLE_HA) {
                 ESP_LOGI(TAG, "HA device status ENABLED!");
                 xTaskCreate(mqtt_device_config_task, "mqtt_device_config_task", 4096, NULL, 5, NULL);
             }
-            */
         }
 
     }

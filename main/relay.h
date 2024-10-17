@@ -81,6 +81,8 @@ char *get_relay_nvs_key(int channel);
 char *get_contact_sensor_nvs_key(int channel);
 char *get_unit_nvs_key(const relay_unit_t *relay);
 
+relay_type_t get_relay_type_from_key(const char *relay_key);
+
 char* serialize_relay_unit(const relay_unit_t *relay);
 esp_err_t deserialize_relay_unit(const char *json_str, relay_unit_t *relay);
 
