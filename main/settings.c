@@ -12,8 +12,13 @@
 
 int device_ready = 0;
 
-/**
- * @brief: Initialize basic (platform) settings for the device
+/** 
+ * @brief: Initialize settings:
+ *  - fill-in missing settings with default values
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ * 
+ * @note: This function should be called before any other settings-related functions
  */
 esp_err_t base_settings_init() {
 
@@ -229,6 +234,8 @@ esp_err_t base_settings_init() {
 
 /**
  * @brief: Device specific settings init
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
  */
 esp_err_t device_settings_init() {
 
@@ -390,9 +397,7 @@ esp_err_t device_settings_init() {
     }
 
     return ESP_OK;
-
 }
-
 
 /**
  * @brief: Initialize device settings
@@ -419,7 +424,11 @@ esp_err_t settings_init() {
     return ESP_OK;
 }
 
-
+/**
+ * @brief Generate serial number for the device
+ * 
+ * @param serial_number: Pointer to the buffer where the serial number will be stored
+ */
 void generate_serial_number(char *serial_number) {
     const char alphanum[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     int i;
@@ -432,7 +441,11 @@ void generate_serial_number(char *serial_number) {
     serial_number[DEVICE_SERIAL_LENGTH] = '\0';  // Null-terminate the string
 }
 
-
+/**
+ * @brief: Init the filesystem / partition
+ * 
+ * @note: This function should be called before any other settings-related functions
+ */
 void init_filesystem() {
     esp_vfs_spiffs_conf_t conf = {
         .base_path = "/spiffs",

@@ -13,6 +13,10 @@
 
 /**
  * @brief: Initialize the device entity
+ * 
+ * @param device: Pointer to the device entity
+ * 
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if device is NULL, ESP_ERR_NO_MEM if memory allocation fails
  */
 esp_err_t ha_device_init(ha_device_t *device) {
     if (device == NULL) {
@@ -279,7 +283,6 @@ esp_err_t ha_origin_init(ha_entity_origin_t *origin) {
     ESP_LOGD(TAG, "Origin initialized: name=%s, url=%s, sw=%s", origin->name, origin->url, origin->sw);
     return ESP_OK;
 }
-
 
 /**
  * @brief: Destroy the device origin entity and free up memory
@@ -638,7 +641,6 @@ char* ha_entity_discovery_print_JSON(ha_entity_discovery_t *discovery) {
     cJSON_Delete(j_entity_discovery);
     return json;
 }
-
 
 /**
  * @brief: Creates basic availability notification entry

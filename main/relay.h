@@ -32,6 +32,7 @@ typedef struct {
     int gpio_pin;               // GPIO pin
     bool enabled;               // Enable the channel
     relay_type_t type;          // Relay type
+    bool gpio_initialized;      // GPIO initialized
     gpio_config_t *io_conf;     // GPIO IO configuration
 } relay_unit_t;
 

@@ -16,6 +16,16 @@
 #include "mqtt.h"
 #include "wifi.h"
 
+/**
+ * @brief: Run the HTTP server
+ * 
+ * This function creates an HTTP server and registers the necessary URI handlers.
+ * It waits for the Wi-Fi to connect before starting the server.
+ * 
+ * @param[in] param: Task parameters (unused)
+ * 
+ * @return void No return value
+ */
 void run_http_server(void *param) {
 
     // wait for Wi-Fi to connect
@@ -133,7 +143,15 @@ void run_http_server(void *param) {
     }  
 }
 
-// Helper function to fill in the static variables in the template
+/**
+ * @brief: Helper function to fill in the static variables in the template
+ * 
+ * This function replaces the placeholders in the HTML template with the actual values.
+ * 
+ * @param[in,out] html_output: The HTML template to modify
+ * 
+ * @return void No return value
+ */
 void assign_static_page_variables(char *html_output) {
 
     // replace size fields
@@ -177,7 +195,17 @@ void assign_static_page_variables(char *html_output) {
     replace_placeholder(html_output, "{MAX_RELAY_GPIO_PIN}", f_len);
 }
 
-// Helper function to replace placeholders in the template
+/**
+ * @brief: Helper function to replace placeholders in the template with actual values
+ * 
+ * This function replaces the placeholders in the HTML template with the actual values.
+ * 
+ * @param[in,out] html_output: The HTML template to modify
+ * @param[in] placeholder: The placeholder to replace
+ * @param[in] value: The value to insert
+ * 
+ * @return void No return value
+ */ 
 void replace_placeholder(char *html_output, const char *placeholder, const char *value) {
     char *pos;
     while ((pos = strstr(html_output, placeholder)) != NULL) {
@@ -194,6 +222,16 @@ void replace_placeholder(char *html_output, const char *placeholder, const char 
     }
 }
 
+/**
+ * @brief: Helper function to truncate a string after the last occurrence of a substring
+ * 
+ * This function truncates a string after the last occurrence of a substring.
+ * 
+ * @param[in,out] str: The string to truncate
+ * @param[in] lookup: The substring to search for
+ * 
+ * @return void No return value
+ */
 void str_trunc_after(char *str, const char *lookup) {
     if (str == NULL || lookup == NULL) {
         return; // Return if either input is NULL
@@ -214,7 +252,17 @@ void str_trunc_after(char *str, const char *lookup) {
     }
 }
 
-// Helper function to convert a hexadecimal character to its decimal value
+/**
+ * @file web.c
+ * @brief: Helper function to convert a hexadecimal character to its decimal value
+ * 
+ * This function takes a single hexadecimal character and converts it to its decimal value.
+ * It supports both uppercase and lowercase hexadecimal characters.
+ * 
+ * @param[in] c: The hexadecimal character to convert
+ * 
+ * @return int: The decimal value of the hexadecimal character, or -1 if the input is not a valid hexadecimal character
+ */
 int hex_to_dec(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -222,7 +270,13 @@ int hex_to_dec(char c) {
     return -1;
 }
 
-// URL decoding function
+/**
+ * @file web.c
+ * @brief URL decoding function
+ * 
+ * This file contains the implementation of the URL decoding function.
+ * 
+ */
 void url_decode(char *src) {
     char *dst = src;
     while (*src) {
@@ -242,7 +296,18 @@ void url_decode(char *src) {
     *dst = '\0'; // Null-terminate the decoded string
 }
 
-// Function to safely extract a single parameter value from the POST buffer
+/**
+ * @brief Extracts the value of a specified parameter from a buffer.
+ *
+ * This function searches for a parameter name within a given buffer and extracts its corresponding value.
+ * The extracted value is then stored in the provided output buffer.
+ *
+ * @param buf The buffer containing the parameters.
+ * @param param_name The name of the parameter to search for.
+ * @param output The buffer where the extracted parameter value will be stored.
+ * @param output_size The size of the output buffer.
+ * @return An integer indicating the success or failure of the extraction.
+ */
 int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size) {
     char *start = strstr(buf, param_name);
     if (start != NULL) {
@@ -265,7 +330,16 @@ int extract_param_value(const char *buf, const char *param_name, char *output, s
 }
 
 /* HANDLERS */
-
+/**
+ * @brief Calculates the factorial of a given number.
+ *
+ * This function takes an integer as input and returns the factorial of that number.
+ * The factorial of a non-negative integer n is the product of all positive integers less than or equal to n.
+ * For example, the factorial of 5 is 5 * 4 * 3 * 2 * 1 = 120.
+ *
+ * @param n The integer for which the factorial is to be calculated. Must be non-negative.
+ * @return The factorial of the input number. If the input is 0, the function returns 1.
+ */
 static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing config web request");
 
@@ -402,6 +476,16 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * @brief: Handler for the POST request to submit the configuration form
+ * 
+ * This function handles the POST request to submit the configuration form.
+ * It extracts the form data, saves the parameters to NVS, and sends a response back to the client.
+ * 
+ * @param[in] req: The HTTP request object
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
 static esp_err_t submit_post_handler(httpd_req_t *req) {
     // Extract form data
     char buf[1024];
@@ -634,6 +718,16 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * @brief: Handler for the POST request to update the relay state
+ * 
+ * This function handles the POST request to update the relay state.
+ * It extracts the relay ID and state from the request, updates the relay state, and sends a response back to the client.
+ * 
+ * @param[in] req: The HTTP request object
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
 static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     // Buffer to hold the received certificate
     char buf[512];
@@ -717,6 +811,16 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * @brief: Handler for the POST request to update the relay state
+ * 
+ * This function handles the POST request to update the relay state.
+ * It extracts the relay ID and state from the request, updates the relay state, and sends a response back to the client.
+ * 
+ * @param[in] req: The HTTP request object
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
 static esp_err_t reboot_handler(httpd_req_t *req) {
     ESP_LOGI("Reboot", "Rebooting the device...");
 
@@ -747,6 +851,16 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * @brief: Handler for the POST request to update the relay state
+ * 
+ * This function handles the POST request to update the relay state.
+ * It extracts the relay ID and state from the request, updates the relay state, and sends a response back to the client.
+ * 
+ * @param[in] req: The HTTP request object
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
 static esp_err_t relays_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing relays web request");
 
@@ -1217,7 +1331,10 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
 }
 
 /**
- * @brief: Status web-service
+ * @brief Handler for /api/relay/update endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
  */
 static esp_err_t status_data_handler(httpd_req_t *req) {
     
@@ -1238,6 +1355,12 @@ static esp_err_t status_data_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * @brief Handler for /api/relay/update endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
 static esp_err_t status_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing status web request");
 
@@ -1305,7 +1428,12 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-
+/**
+ * @brief Handler for /api/relay/update endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
 static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     // Create a JSON object for the response
     cJSON *response = cJSON_CreateObject();

@@ -109,6 +109,7 @@ relay_unit_t get_actuator_relay(int channel, int pin) {
     relay.inverted = false;        // Set to false by default, can be adjusted if needed
     relay.gpio_pin = pin;
     relay.enabled = true;          // Enable by default
+    relay.gpio_initialized = false;
     relay.type = RELAY_TYPE_ACTUATOR;
 
     if(INIT_RELAY_ON_GET) {
@@ -138,6 +139,7 @@ relay_unit_t get_sensor_relay(int channel, int pin) {
     relay.inverted = false;        // Set to false by default, can be adjusted if needed
     relay.gpio_pin = pin;
     relay.enabled = true;          // Enable by default
+    relay.gpio_initialized = false;
     relay.type = RELAY_TYPE_SENSOR;
 
     if(INIT_SENSORS_ON_GET) {
@@ -168,6 +170,11 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
     if (relay->io_conf != NULL) {
         ESP_LOGW(TAG, "io_conf seems to be already initialized (not NULL), potential risk of memory leak");
         // free(relay->io_conf);
+    }
+
+    // chech gpio init flag
+    if (relay->gpio_initialized) {
+        ESP_LOGW(TAG, "GPIO pin %d seems to be already inialized. Flag set to TRUE. Potential risk of memory leak.", relay->gpio_pin);
     }
 
     // Allocate memory for io_conf
@@ -212,6 +219,9 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
     // Assign io_conf to relay struct
     relay->io_conf = io_conf;
 
+    // set flag to true
+    relay->gpio_initialized = true;
+
     return ESP_OK;
 }
 
@@ -229,20 +239,18 @@ esp_err_t relay_sensor_register_isr(relay_unit_t *relay) {
     }
 
     // Check if io_conf is already allocated and free it if necessary
-    if (relay->io_conf == NULL) {
+    if (relay->io_conf == NULL || !relay->gpio_initialized) {
         ESP_LOGE(TAG, "io_conf (NULL) not initialized. Cannot continue.");
         return ESP_ERR_INVALID_ARG;
     }
 
     // Register ISR handler for sensor-type relays
     if (relay->type == RELAY_TYPE_SENSOR) {
-        // Install ISR service if not already installed
-        static bool is_isr_service_installed = false;
-        if (!is_isr_service_installed) {
-            gpio_install_isr_service(0);  // Default ISR flags
-            is_isr_service_installed = true;
+        // Install ISR service with default configuration
+        if (gpio_install_isr_service(0) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to install ISR service on GPIO pin %d", relay->gpio_pin);
+            return ESP_FAIL;
         }
-
         // Add ISR handler for the specific GPIO pin
         gpio_isr_handler_add(relay->gpio_pin, gpio_isr_handler, (void *)(relay->gpio_pin));
         ESP_LOGI(TAG, "ISR handler added for GPIO pin %d", relay->gpio_pin);
@@ -315,57 +323,48 @@ void gpio_event_task(void *arg) {
             }
 
             // Find the sensor associated with the GPIO pin
-            relay_unit_t *relay = NULL;
+            relay_unit_t relay;
             for (int i = 0; i < sensor_count; i++) {
                 if (sensors[i].gpio_pin == evt.gpio_num) {
-                    relay = &sensors[i];
+                    relay = sensors[i];
                     break;
                 }
             }
 
-            if (relay == NULL) {
-                ESP_LOGE(TAG, "No contact sensor found for GPIO %d", evt.gpio_num);
-                free(sensors);  // Free the dynamically allocated sensor list
-                continue;
-            }
-
             // Update relay state (if necessary)
-            if (relay->inverted) {
-                relay->state = (current_level == 1) ? RELAY_STATE_OFF : RELAY_STATE_ON;
+            if (relay.inverted) {
+                relay.state = (current_level == 1) ? RELAY_STATE_OFF : RELAY_STATE_ON;
             } else {
-                relay->state = (current_level == 1) ? RELAY_STATE_ON : RELAY_STATE_OFF;
+                relay.state = (current_level == 1) ? RELAY_STATE_ON : RELAY_STATE_OFF;
             }
 
 
-            // Get NVS key for the relay and save state to NVS
-            char *relay_nvs_key = get_contact_sensor_nvs_key(relay->channel);
+            // Get NVS key for the contact sensor and save state to NVS
+            char *relay_nvs_key = get_contact_sensor_nvs_key(relay.channel);
             if (relay_nvs_key == NULL) {
-                ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay->channel);
-                free(sensors);  // Free sensor list before exiting
+                ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay.channel);
+                free_relays_array(sensors, sensor_count);  // Free sensor list before exiting
                 continue;
             }
 
-            ESP_LOGI(TAG, ">>> Saving new relay contact state (%d) to NVS. Key (%s), channel (%d), pin (%d)", (int)relay->state, relay_nvs_key, relay->channel, relay->gpio_pin);
-            err = save_relay_to_nvs(relay_nvs_key, relay);
+            ESP_LOGI(TAG, ">>> Saving new relay contact state (%d) to NVS. Key (%s), channel (%d), pin (%d)", (int)relay.state, relay_nvs_key, relay.channel, relay.gpio_pin);
+            err = save_relay_to_nvs(relay_nvs_key, &relay);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to save contact sensor state to NVS");
+                continue;
             }
 
             // publish to MQTT
             uint16_t mqtt_connection_mode;
             ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
             if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && g_mqtt_ready) {
-                mqtt_publish_relay_data(relay);
-                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+                mqtt_publish_relay_data(&relay);
+                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(&relay), relay.type));
             }
 
             free(relay_nvs_key);  // Free the dynamically allocated NVS key
             // cleanup
-            if (INIT_SENSORS_ON_LOAD) {
-                ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
-            } else {
-                free(sensors);
-            }
+            free_relays_array(sensors, sensor_count);  // Free sensor list before exiting   
         }
     }
 }
@@ -433,9 +432,16 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay) {
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "De-init for unit channel (%d) and type (%d)", relay->channel, (int)relay->type);
-    free(relay->io_conf);  // Free the GPIO configuration for this relay
-    relay->io_conf = NULL; // Set pointer to NULL to avoid dangling references
+    // Protect against non-initialized GPIO
+    if (!relay->gpio_initialized) {
+        ESP_LOGW(TAG, "GPIO pin %d is not initialized. Nothing to de-init.", relay->gpio_pin);
+        return ESP_OK;
+    }
+
+    // Deinitialize the GPIO pin
+    free(relay->io_conf);
+    relay->io_conf = NULL;
+    relay->gpio_initialized = false;
 
     return ESP_OK;
 }
@@ -462,8 +468,9 @@ esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
     }
     memcpy(relay_copy, relay, sizeof(relay_unit_t));
 
-    //reset the io_conf property
+    //reset the io_conf property and the flag
     relay_copy->io_conf = NULL;
+    relay_copy->gpio_initialized = false;
 
     // save the copy to NVS
     esp_err_t err = nvs_write_blob(S_NAMESPACE, key, relay_copy, sizeof(relay_unit_t));
@@ -1123,9 +1130,6 @@ esp_err_t relay_publish_all_to_mqtt() {
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to subscribe relay channel %d to MQTT.", relay_list[i].channel);
         }
-
-        // Free the dynamically allocated relay_key
-        free(relay_key);
     }
 
     // Free the dynamically allocated relay_list

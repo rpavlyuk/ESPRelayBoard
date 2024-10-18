@@ -14,6 +14,9 @@
 #include "relay.h"
 #include "mqtt.h"
 
+/**
+ * @brief Main application entry point
+ */
 void app_main(void) {
 
     bool wifi_provisioned = false;

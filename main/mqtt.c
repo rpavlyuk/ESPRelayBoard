@@ -15,11 +15,15 @@
 #include "relay.h"  // To access relay data
 #include "hass.h"
 
+/* Queue glboal variables */
 static QueueHandle_t mqtt_event_queue = NULL; 
 static QueueHandle_t mqtt_command_queue = NULL;
 
+/* MQTT client global variables */
 esp_mqtt_client_handle_t mqtt_client = NULL;
 bool mqtt_connected = false;
+
+/* Cross-file global MQTT readiness status */
 bool g_mqtt_ready = false;
 
 /**
@@ -82,7 +86,7 @@ esp_err_t start_mqtt_queue_task(void) {
  */
 void mqtt_event_task(void *arg) {
     relay_event_t event;
-    relay_unit_t *relay = NULL;
+    relay_unit_t relay;
     esp_err_t err;
 
     while (1) {
@@ -91,36 +95,27 @@ void mqtt_event_task(void *arg) {
             
             ESP_LOGI(TAG, "mqtt_event_task: Recevied MQTT publish message. Key (%s), type (%d)", event.relay_key, event.relay_type);
 
-            // Allocate memory for relay
-            relay = (relay_unit_t *)malloc(sizeof(relay_unit_t));
-            if (relay == NULL) {
-                ESP_LOGE(TAG, "Failed to allocate memory for relay_unit_t");
-                free(event.relay_key);  // Clean up
-                continue;               // Skip this iteration
-            }
-
             // Load relay based on event type
             if (event.relay_type == RELAY_TYPE_ACTUATOR) {
-                err = load_relay_actuator_from_nvs(event.relay_key, relay);
+                err = load_relay_actuator_from_nvs(event.relay_key, &relay);
             } else {
-                err = load_relay_sensor_from_nvs(event.relay_key, relay);
+                err = load_relay_sensor_from_nvs(event.relay_key, &relay);
             }
 
-            if (err == ESP_OK && relay != NULL) {
+            if (err == ESP_OK) {
                 // Publish the relay state to MQTT
-                mqtt_publish_relay_data(relay);
+                mqtt_publish_relay_data(&relay);
 
                 // Free relay memory if dynamically allocated
-                if (relay->type == RELAY_TYPE_ACTUATOR) {
+                if (relay.type == RELAY_TYPE_ACTUATOR) {
                     if (INIT_RELAY_ON_LOAD) {
-                        ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+                        ESP_ERROR_CHECK(relay_gpio_deinit(&relay));
                     }
                 } else {
                     if (INIT_SENSORS_ON_LOAD) {
-                        ESP_ERROR_CHECK(relay_gpio_deinit(relay));
+                        ESP_ERROR_CHECK(relay_gpio_deinit(&relay));
                     }
                 }
-                free(relay);
             } else {
                 ESP_LOGE(TAG, "Failed to load relay from NVS for key %s", event.relay_key);
             }
@@ -149,13 +144,7 @@ void mqtt_event_task(void *arg) {
 esp_err_t  trigger_mqtt_publish(const char *relay_key, relay_type_t relay_type) {
     relay_event_t event;
 
-    // Dynamically allocate memory for the relay_key and copy the key
-    event.relay_key = strdup(relay_key);
-    if (event.relay_key == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for relay_key");
-        return ESP_FAIL;
-    }
-    
+    event.relay_key = relay_key;
     event.relay_type = relay_type;
 
     ESP_LOGI(TAG, "trigger_mqtt_publish: +-> Pushing MQTT publish event to the queue. Key (%s), type(%d)", event.relay_key, (int)event.relay_type);
@@ -163,13 +152,22 @@ esp_err_t  trigger_mqtt_publish(const char *relay_key, relay_type_t relay_type) 
     // Send the event to the MQTT event task
     if (xQueueSend(mqtt_event_queue, &event, portMAX_DELAY) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to send event to MQTT queue");
-        free(event.relay_key);  // Free relay_key if event send fails
         return ESP_FAIL;
     }
 
     return ESP_OK;
 }
 
+/**
+ * @brief: Log an error message if the error code is non-zero.
+ * 
+ * This function is used to log an error message if the error code is non-zero.
+ * 
+ * @param[in] message The message to log.
+ * @param[in] error_code The error code to check.
+ * 
+ * @return void
+ */
 static void log_error_if_nonzero(const char *message, int error_code)
 {
     if (error_code != 0) {
@@ -177,6 +175,17 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
+/**
+ * @brief: Load the CA certificate from the filesystem.
+ * 
+ * This function loads the CA certificate from the filesystem and stores it in a 
+ * dynamically allocated buffer. The certificate is used to verify the MQTT server's
+ * identity during the TLS handshake.
+ * 
+ * @param[out] ca_cert The buffer to store the CA certificate.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be loaded.
+ */
 esp_err_t load_ca_certificate(char **ca_cert)
 {
     FILE *f = fopen(CA_CERT_PATH, "r");
@@ -214,6 +223,16 @@ esp_err_t load_ca_certificate(char **ca_cert)
     return ESP_OK;
 }
 
+/**
+ * @brief: Save the CA certificate to the filesystem.
+ * 
+ * This function saves the CA certificate to the filesystem. The certificate is used
+ * to verify the MQTT server's identity during the TLS handshake.
+ * 
+ * @param[in] ca_cert The CA certificate to save.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be saved.
+ */
 esp_err_t save_ca_certificate(const char *ca_cert)
 {
     if (ca_cert == NULL) {
@@ -338,7 +357,16 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 }
 
 
-// Function to initialize the MQTT client
+/**
+ * @brief Initialize the MQTT client.
+ * 
+ * This function initializes the MQTT client with the configuration parameters
+ * stored in NVS. The function reads the MQTT server, port, protocol, username,
+ * password, and prefix from NVS and uses them to configure the MQTT client.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the MQTT client cannot be initialized.
+ * 
+ */
 esp_err_t mqtt_init(void) {
     
     uint16_t mqtt_connection_mode;
@@ -419,7 +447,12 @@ esp_err_t mqtt_init(void) {
 }
 
 
-// Call this function when you are shutting down the application or no longer need the MQTT client
+/**
+ * @brief Cleanup the MQTT client.
+ * 
+ * This function stops and destroys the MQTT client, freeing the resources used by the client.
+ * 
+ */
 void cleanup_mqtt() {
     if (mqtt_client) {
         mqtt_connected = false;
@@ -429,7 +462,18 @@ void cleanup_mqtt() {
     }
 }
 
-// Publish relay state to MQTT
+/**
+ * @brief Publish relay data to MQTT.
+ * 
+ * This function publishes the relay data to MQTT. The function reads the relay state,
+ * channel, inverted, and GPIO pin from the relay structure and publishes the data to
+ * the appropriate MQTT topics. The function also reads the MQTT prefix and device ID
+ * from NVS to construct the MQTT topics.
+ * 
+ * @param[in] relay The relay data to publish.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the data cannot be published.
+ */
 esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
 
     dump_current_task();
@@ -597,7 +641,18 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     }
 }
 
-// Publish relay HA device auto-discovery to MQTT
+/**
+ * @brief: Task for regular device auto-discovery updates for Home Assistant
+ * 
+ * This function creates a task that periodically updates the Home Assistant device
+ * configuration in MQTT. The task reads the device ID, MQTT prefix, and Home Assistant
+ * prefix from NVS and uses them to publish the device configuration to MQTT. The task
+ * waits for the MQTT connection to become ready before publishing the configuration.
+ * 
+ * @param[in] param Unused task parameter.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if HA data connot be published.
+ */
 esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *mqtt_prefix, const char *homeassistant_prefix) {
     
     uint16_t mqtt_connection_mode;
@@ -696,6 +751,15 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
 
 /**
  * @brief: Task for regular device auto-discovery updates for Home Assistant
+ * 
+ * This function creates a FreeRTOS task that periodically updates the Home Assistant device
+ * configuration in MQTT. The task reads the device ID, MQTT prefix, and Home Assistant
+ * prefix from NVS and uses them to publish the device configuration to MQTT. The task
+ * waits for the MQTT connection to become ready before publishing the configuration.
+ * 
+ * @param[in] param Unused task parameter.
+ * 
+ * @return void   This function does not return a value.
  */
 void mqtt_device_config_task(void *param) {
     char *device_id = NULL;
@@ -737,6 +801,15 @@ void mqtt_device_config_task(void *param) {
 
 /**
  * @brief: Resolve the device object from MQTT topic
+ * 
+ * This function resolves the device object from the MQTT topic. The function extracts the
+ * device ID from the topic and uses it to load the device object from NVS. The function
+ * returns a pointer to the device object if successful, or NULL if the device cannot be
+ * resolved.
+ * 
+ * @param[in] topic The MQTT topic to resolve.
+ * 
+ * @return device_t*    A pointer to the unit structure, or NULL if the device cannot be resolved.
  */
 relay_unit_t *resolve_relay_from_topic(const char *topic) {
 
@@ -776,7 +849,16 @@ relay_unit_t *resolve_relay_from_topic(const char *topic) {
 }
 
 /**
- * @brief: Get relay key by MQTT topic
+ * @brief: Get relay key from MQTT topic
+ * 
+ * This function extracts the relay key from the MQTT topic. The function splits the topic
+ * using '/' as a delimiter and retrieves the element at index 2. The function returns a
+ * dynamically allocated string containing the relay key if successful, or NULL if the key
+ * cannot be resolved. The caller is responsible for freeing the returned string.
+ * 
+ * @param[in] topic The MQTT topic to extract the relay key from.
+ * 
+ * @return char*    A dynamically allocated string containing the relay key, or NULL if the key cannot be resolved.
  */
 char *resolve_key_from_topic(const char *topic) {
     return get_element_from_path(topic, 2);
@@ -825,7 +907,17 @@ char *get_element_from_path(const char *path, int index) {
 
 
 /**
- * @brif: Split string by delimiter
+ * @brief: Split character string by delimiter
+ * 
+ * This function splits a character string by a delimiter and returns an array of strings.
+ * The function dynamically allocates memory for the array and the individual strings.
+ * The caller is responsible for freeing the memory allocated by the function.
+ * 
+ * @param[in] a_str The character string to split.
+ * @param[in] a_delim The delimiter character to split the string by.
+ * @param[out] element_count The number of elements in the resulting array.
+ * 
+ * @return char**    An array of strings containing the split elements, or NULL if the string cannot be split.
  */
 char** str_split(char* a_str, const char a_delim, size_t *element_count)
 {
@@ -879,6 +971,16 @@ char** str_split(char* a_str, const char a_delim, size_t *element_count)
 
 /**
  * @brief: Subscribe to MQTT relay update commands
+ * 
+ * This function subscribes to the MQTT topics for relay update commands. The function
+ * creates a FreeRTOS task that listens for relay update commands and updates the relay
+ * state accordingly. The function reads the MQTT prefix and device ID from NVS and uses
+ * them to construct the MQTT topics. The function waits for the MQTT connection to become
+ * ready before subscribing to the topics.
+ * 
+ * @param[in] param Unused task parameter.
+ * 
+ * @return void   This function does not return a value.
  */
 void mqtt_subscribe_relays_task(void *arg) {
     mqtt_command_event_t event;
@@ -907,7 +1009,15 @@ void mqtt_subscribe_relays_task(void *arg) {
 }
 
 /**
- * @brief: Subscribe relay to MQTT topic
+ * @brief: Subscribe relay to corresponding MQTT topic
+ * 
+ * This function subscribes the relay to the MQTT topic for relay update commands. The function
+ * reads the MQTT prefix and device ID from NVS and uses them to construct the MQTT topics. The
+ * function waits for the MQTT connection to become ready before subscribing to the topics.
+ * 
+ * @param[in] relay The relay to subscribe to the MQTT topic.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the relay cannot be subscribed.
  */
 esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
 
