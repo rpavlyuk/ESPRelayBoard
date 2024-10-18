@@ -165,7 +165,7 @@ The device will automatically enable itself in Home Assistant if:
 You will see device shown as `<device_id>` (e.g., *DAF3124C798E* by *ESP Relay Board*) in the device list as soon as HA picks the auto-discovery records up.
 
 ## WEB API
-The device is exposing a simple read-only API URL to get the device status and sensor data.
+The device is exposing a simple JSON API to control relays and get units information..
 1. Get all units (relays and sensors):
  * Endpoint: `/api/relays`
  * Method: GET
