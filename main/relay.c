@@ -177,47 +177,40 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
         ESP_LOGW(TAG, "GPIO pin %d seems to be already inialized. Flag set to TRUE. Potential risk of memory leak.", relay->gpio_pin);
     }
 
-    // Allocate memory for io_conf
-    gpio_config_t *io_conf = malloc(sizeof(gpio_config_t));
-    if (io_conf == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for gpio_config_t");
-        return ESP_ERR_NO_MEM;
-    }
-
+   gpio_config_t io_conf;
+    
     // Configure GPIO based on relay type (actuator or sensor)
     switch (relay->type) {
         case RELAY_TYPE_SENSOR:
-            io_conf->pin_bit_mask = (1ULL << relay->gpio_pin);  // Set bit mask for dynamic pin
-            io_conf->mode = GPIO_MODE_INPUT;
-            io_conf->pull_up_en = GPIO_PULLUP_ENABLE;     // Enable pull-up
-            io_conf->pull_down_en = GPIO_PULLDOWN_DISABLE;  // Disable pull-down
-            io_conf->intr_type = GPIO_INTR_ANYEDGE;  // Interrupt on any edge
+            io_conf.pin_bit_mask = (1ULL << relay->gpio_pin);  // Set bit mask for dynamic pin
+            io_conf.mode = GPIO_MODE_INPUT;
+            io_conf.pull_up_en = GPIO_PULLUP_ENABLE;     // Enable pull-up
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // Disable pull-down
+            io_conf.intr_type = GPIO_INTR_ANYEDGE;  // Interrupt on any edge
             break;
 
         case RELAY_TYPE_ACTUATOR:
-            io_conf->pin_bit_mask = (1ULL << relay->gpio_pin);  // Actuator uses output
-            io_conf->mode = GPIO_MODE_OUTPUT;
-            io_conf->pull_up_en = GPIO_PULLUP_DISABLE;
-            io_conf->pull_down_en = GPIO_PULLDOWN_DISABLE;
-            io_conf->intr_type = GPIO_INTR_DISABLE;
+            io_conf.pin_bit_mask = (1ULL << relay->gpio_pin);  // Actuator uses output
+            io_conf.mode = GPIO_MODE_OUTPUT;
+            io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            io_conf.intr_type = GPIO_INTR_DISABLE;
             break;
 
         default:
             ESP_LOGE(TAG, "Invalid relay type: %d", relay->type);
-            free(io_conf);
             return ESP_ERR_INVALID_ARG;
     }
 
     // Apply GPIO configuration
-    esp_err_t err = gpio_config(io_conf);
+    esp_err_t err = gpio_config(&io_conf);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "GPIO configuration failed for pin %d, error: %s", relay->gpio_pin, esp_err_to_name(err));
-        free(io_conf);
         return err;
     }
 
     // Assign io_conf to relay struct
-    relay->io_conf = io_conf;
+    relay->io_conf = &io_conf;
 
     // set flag to true
     relay->gpio_initialized = true;
@@ -246,11 +239,6 @@ esp_err_t relay_sensor_register_isr(relay_unit_t *relay) {
 
     // Register ISR handler for sensor-type relays
     if (relay->type == RELAY_TYPE_SENSOR) {
-        // Install ISR service with default configuration
-        if (gpio_install_isr_service(0) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to install ISR service on GPIO pin %d", relay->gpio_pin);
-            return ESP_FAIL;
-        }
         // Add ISR handler for the specific GPIO pin
         gpio_isr_handler_add(relay->gpio_pin, gpio_isr_handler, (void *)(relay->gpio_pin));
         ESP_LOGI(TAG, "ISR handler added for GPIO pin %d", relay->gpio_pin);
@@ -423,25 +411,27 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay) {
 
     // is relay an instance ?
     if (relay == NULL) {
-        ESP_LOGE(TAG, "NULL value for relay unit");
+        ESP_LOGE(TAG, "NULL value for relay unit. Nothing to de-init. Channel (%d), type (%d)", relay->channel, relay->type);
         return ESP_ERR_INVALID_ARG;
     }
 
     if (relay->io_conf == NULL) {
-        ESP_LOGW(TAG, "io_conf is NULL. Nothing to de-init.");
+        ESP_LOGW(TAG, "io_conf is NULL. Nothing to de-init. Channel (%d), type (%d)", relay->channel, relay->type);
         return ESP_OK;
     }
 
     // Protect against non-initialized GPIO
     if (!relay->gpio_initialized) {
-        ESP_LOGW(TAG, "GPIO pin %d is not initialized. Nothing to de-init.", relay->gpio_pin);
+        ESP_LOGW(TAG, "GPIO pin %d is not initialized. Nothing to de-init. Channel (%d), type (%d)", relay->gpio_pin, relay->channel, relay->type);
         return ESP_OK;
     }
 
     // Deinitialize the GPIO pin
-    free(relay->io_conf);
+    // free(relay->io_conf);
     relay->io_conf = NULL;
     relay->gpio_initialized = false;
+
+    ESP_LOGI(TAG, "GPIO pin %d de-initialized. Channel (%d), type (%d)", relay->gpio_pin, relay->channel, relay->type);
 
     return ESP_OK;
 }
@@ -962,6 +952,12 @@ esp_err_t relay_all_sensors_register_isr() {
     if (gpio_evt_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create the queue");
         return ESP_FAIL;  // Exit if queue creation fails
+    }
+
+    /* Install ISR service with default configuration */
+    if (gpio_install_isr_service(0) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to install ISR service with default configuration");
+        return ESP_FAIL;
     }
 
     /* Process sensors */

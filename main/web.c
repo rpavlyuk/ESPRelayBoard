@@ -1268,7 +1268,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
             return ESP_FAIL;
         } 
     } else {
-        // Save the updated relay to NVS using relay_key
+        // Save the updated sensor to NVS using relay_key
         err = save_relay_to_nvs(relay_key, &relay);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save relay to NVS");
@@ -1326,7 +1326,6 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON_Delete(response);
     free(relay_json_str);
     free((void *)response_str);
-
     return ESP_OK;
 }
 
