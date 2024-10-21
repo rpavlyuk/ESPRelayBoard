@@ -20,7 +20,7 @@ The device supports two types of units:
 ## Prerequisites
 To get started, you will need:
 - **Hardware**:
-  - ESP32-C6 or ESP32-S3 microcontroller (both have been tested) with at least 8Mb flash.
+  - ESP32-C6 or ESP32-S3 microcontroller (both have been tested) with at least 4Mb flash.
   - Relay. E.g., SRD-05VDC-SL-C-based mechanical relay module.
   - **OR** ESP32-based relay board with 4Mb flash.
 - **Software**:
@@ -187,7 +187,7 @@ idf.py build
 * Click `Update Device` button on WEB UI. Device will update itself (takes 2-5 mins depending on the connection speed) and reboot with new hardware.
 * The device will revert to the previous (running) firmware if the OTA process crashes or is not complete successfully.
 > [!NOTE]
-> If you flash your device with incompatible firmware and incidentally "brick" it, no problem -- just re-flash it using USB dongle as was described in section *Building and Flashing* above. You might need to `erase-flash` and reconfigure the device again.
+> OTA firmware update is generally quite robust. If you flash your device with incompatible firmware or use wrong URL and thus incidentally "brick" it, no problem -- just re-flash it using USB dongle as was described in section *Building and Flashing* above. You might need to `erase-flash` and reconfigure the device again.
 
 ## WEB API
 The device is exposing a simple JSON API to control relays and get units information..
