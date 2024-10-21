@@ -15,13 +15,14 @@ The device supports two types of units:
 - **MQTT Support**: Publishes relay and contact sensors states via MQTT for further integration with various platforms.
 - **Home Assistant Integration**: Automatically detects and configures devices in Home Assistant using auto-discovery via MQTT.
 - **Web Interface**: Provides a web-based user interface for configuration, control and monitoring.
+- **OTA (over the air) Firmware Update**: Trigger firmware update via WEB interface from a provided URL.
 
 ## Prerequisites
 To get started, you will need:
 - **Hardware**:
-  - ESP32-C6 or ESP32-S3 microcontroller (both have been tested).
+  - ESP32-C6 or ESP32-S3 microcontroller (both have been tested) with at least 8Mb flash.
   - Relay. E.g., SRD-05VDC-SL-C-based mechanical relay module.
-  - **OR** ESP32-based relay board.
+  - **OR** ESP32-based relay board with 4Mb flash.
 - **Software**:
   - ESP-IDF framework (version 4.4 or higher recommended installed and configured).
 
@@ -97,7 +98,12 @@ This is a default (sample) wiring and do not worry if you'd like to use other pi
   * *Component config → ESP System Settings -> Event loop task stack size* to `4096`
   * *Component config → ESP System Settings -> Main task stack size* to `4096`
   * *Component config → ESP System Settings -> Minimal allowed size for shared stack* to `2048`
-
+* Alternatively, you can use some of the existing configurations that I've prepared for some of ESP32 devices. Those are `sdkconfig.<device>` files in project root. You copy them as `sdkconfig` and that will load all needed settings already. For example, to enable `ESP32-S3` as device, you can:
+```
+cp -a sdkconfig.esp32-s3 sdkconfig
+```
+> [!NOTE]
+> This will overwrite any settings you've made via `idf.py menuconfig`
 
 ## Initiation
 ### First boot
@@ -123,13 +129,15 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
   * `MQTT Prefix`: top level path in the MQTT tree. The path will look like: `<MQTT_prefix>/<device_id>/...`
   * `HomeAssistant Device integration MQTT Prefix`: HomeAssistant MQTT device auto-discovery prefix. Usually, it is set to `homeassistant`
   * `HomeAssistant Device update interval (ms)`: how often to update device definitions at HomeAssistant.
+* System Update:
+  * `OTA Update URL`: A URL pointing to `.bin` file with the firmware which you want to update the system to. See section *OTA Firmware Update* below for details.
 * Relay Parameters:
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
   * `Contact sensors count`: number of contact sensors you'd like to activate  and monitor
   * `Refresh interval (ms)`: relay/sensor reading update interval. Used in WEB interface.
+* `CA / Root Certificate`: PEM formatted SSL root/intermediate certification path. Used by MQTTS connection and HTTPS firmware OTA update.
 
 Changing number of sensors or relays requires a restart of the device. Use button `Reboot Device` at the bottom of configuration page.
-
 
 ## Units Configuration
 All units (relays and sensors) can be configured on **Relays** page.
@@ -163,6 +171,23 @@ The device will automatically enable itself in Home Assistant if:
 * auto-discovery is enable in Home Assistant (should be enabled by default)
 
 You will see device shown as `<device_id>` (e.g., *DAF3124C798E* by *ESP Relay Board*) in the device list as soon as HA picks the auto-discovery records up.
+
+## OTA Firmware Update
+The device allows updating the firmware from a provided URL pointing to the firmware image. The file is generate once you run a successful build using `idf.py build` command and is placed in `./build/` folder as `ESPRelayBoard.bin`. 
+
+You can either point `OTA Update URL` to one of the `.bin` files placed in *Releases* section at Github or you may have your own update location. Typically, the update flow in this case will look like this:
+* Run a build:
+```
+idf.py build
+```
+* Place the file `./build/ESPRelayBoard.bin` to a WEB server that is accessible by the device. If you use HTTPS then make sure you've set correct `CA / Root Certificate`.
+> [!NOTE]
+> The same certificate is used for `mqtts` connection, thus is you're using different root certificates for `mqtts` and `https` update, then make sure you restore the original one for `mqtts` once the OTA is complete.
+* Adjust / provide `OTA Update URL` if needed.
+* Click `Update Device` button on WEB UI. Device will update itself (takes 2-5 mins depending on the connection speed) and reboot with new hardware.
+* The device will revert to the previous (running) firmware if the OTA process crashes or is not complete successfully.
+> [!NOTE]
+> If you flash your device with incompatible firmware and incidentally "brick" it, no problem -- just re-flash it using USB dongle as was described in section *Building and Flashing* above. You might need to `erase-flash` and reconfigure the device again.
 
 ## WEB API
 The device is exposing a simple JSON API to control relays and get units information..

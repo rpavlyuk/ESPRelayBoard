@@ -79,7 +79,7 @@ esp_err_t ha_device_init(ha_device_t *device) {
     ESP_LOGD(TAG, "DEVICE: assigned via_device: %s", device->via_device);
 
     // Assign sw_version
-    device->sw_version = strdup(HA_DEVICE_ORIGIN_SW);
+    device->sw_version = strdup(DEVICE_SW_VERSION);
     if (device->sw_version == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for sw_version");
         free(device->manufacturer);
@@ -102,6 +102,7 @@ esp_err_t ha_device_init(ha_device_t *device) {
         free(device->configuration_url);
         free(device->name);
         free(device->via_device);
+        free(device->sw_version);
         return err;
     }
     ESP_LOGD(TAG, "DEVICE: assigned identifiers[0]: %s", device->identifiers[0]);

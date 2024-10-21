@@ -111,3 +111,6 @@ XUNIT_RESULT*.xml
 
 # Debug
 debug.log
+
+# Exclude auto-generates version header
+main/version.h

@@ -1,6 +1,9 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+/* version.h header is auto-generated during build */
+#include "version.h"
+
 /**
  * Enabling functional modules
  */

@@ -28,6 +28,9 @@ void app_main(void) {
     
     /* Initializations */
 
+    // Check partition table
+    ESP_ERROR_CHECK(check_ota_partitions());
+
     // Initialize NVS
     ESP_ERROR_CHECK(nvs_init());
 
@@ -53,6 +56,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
     ESP_LOGI(TAG, "*** Starting ESP32-based Relay Board device ***");
+    ESP_LOGI(TAG, "Version: %s", DEVICE_SW_VERSION);
     ESP_LOGI(TAG, "Device ID: %s", device_id);
     ESP_LOGI(TAG, "Device Serial: %s", device_serial);
 

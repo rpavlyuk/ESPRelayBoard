@@ -2,9 +2,16 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "esp_spiffs.h"  // Include for SPIFFS
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
+#include "esp_http_client.h"
+
+#include "esp_ota_ops.h"
+#include "esp_https_ota.h"
 
 #include "settings.h"
 #include "non_volatile_storage.h"
@@ -226,7 +233,27 @@ esp_err_t base_settings_init() {
             ESP_LOGE(TAG, "Failed creating key %s with value %li", S_KEY_HA_UPDATE_INTERVAL, ha_upd_intervl);
             return ESP_FAIL;
         }
-    }  
+    }
+
+    // Parameter: OTA Update url
+    char *ota_update_url = NULL;
+    if (nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url) == ESP_OK) {
+        ESP_LOGI(TAG, "Found parameter %s in NVS: %s", S_KEY_OTA_UPDATE_URL, ota_update_url);
+        is_dynamically_allocated = true;
+    } else {
+        ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_OTA_UPDATE_URL);
+        ota_update_url = S_DEFAULT_OTA_UPDATE_URL;
+        if (nvs_write_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, ota_update_url) == ESP_OK) {
+            ESP_LOGI(TAG, "Successfully created key %s with value %s", S_KEY_OTA_UPDATE_URL, ota_update_url);
+        } else {
+            ESP_LOGE(TAG, "Failed creating key %s with value %s", S_KEY_OTA_UPDATE_URL, ota_update_url);
+            return ESP_FAIL;
+        }
+    }
+    if (is_dynamically_allocated) {
+        free(ha_prefix); // for string (char*) params only
+        is_dynamically_allocated = false;
+    }
     
     return ESP_OK;
 
@@ -468,4 +495,108 @@ void init_filesystem() {
     } else {
         ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
     }
+}
+
+/**
+ * @brief Perform an OTA update from the given URL.
+ *
+ * This function initiates an OTA update process using the URL provided.
+ * It configures the OTA client, downloads the firmware, and flashes it to the device.
+ * Upon successful completion, the device will automatically reboot.
+ *
+ * @param url The URL of the firmware binary to download.
+ * @return ESP_OK if the OTA update was successful, or an error code otherwise.
+ */
+esp_err_t perform_ota_update(const char *url) {
+    ESP_LOGI(TAG, "Starting OTA update from URL: %s", url);
+    
+    char *ca_cert = NULL;
+    
+    // Load the CA root certificate
+    if (load_ca_certificate(&ca_cert) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load CA certificate. Proceeding without it.");
+    }
+
+    // Configure HTTP client for OTA update
+    esp_http_client_config_t ota_https_client_config = {
+        .url = url,
+        .timeout_ms = 5000,  // Timeout for OTA update
+        .cert_pem = ca_cert  // Set CA certificate if loaded, otherwise NULL
+    };
+
+    // Configure OTA update
+    esp_https_ota_config_t ota_config = {
+        .http_config = &ota_https_client_config,
+    };
+
+    // Start the OTA update process
+    esp_err_t ret = esp_https_ota(&ota_config);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "OTA update successful!");
+    } else {
+        ESP_LOGE(TAG, "OTA update failed: %s", esp_err_to_name(ret));
+    }
+
+    // Free the CA certificate memory if it was dynamically allocated
+    if (ca_cert) {
+        free(ca_cert);
+    }
+
+    return ret;
+}
+
+/**
+ * @file: settings.c
+ * @brief Check the OTA partitions for the current running partition and its state.
+ * 
+ * This function checks the OTA partitions to determine the current running partition
+ * and its state. It prints the running partition label and the OTA state to the console.
+ * 
+ * @return ESP_OK if the OTA partitions were checked successfully, or an error code otherwise.
+ */
+esp_err_t check_ota_partitions(void) {
+
+    ESP_LOGI(TAG, "Checking OTA partitions");
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) {
+        ESP_LOGE(TAG, "Running partition not found!");
+        return ESP_ERR_OTA_BASE;
+    } else {
+        ESP_LOGI(TAG, "Running from partition: %s", running->label);
+    }
+
+    esp_ota_img_states_t ota_state;
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        ESP_LOGI(TAG, "OTA partition state: %d", ota_state);
+    } else {
+        ESP_LOGE(TAG, "Failed to get OTA state");
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: OTA update task
+ * 
+ * @param param: Pointer to the OTA update parameters
+ * 
+ * @note: This function should be called as a FreeRTOS task
+ */
+void ota_update_task(void *param) {
+    ota_update_param_t *update_param = (ota_update_param_t *)param;
+    esp_err_t ret = perform_ota_update(update_param->ota_url);
+    
+    // Check the result and handle any post-update logic
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "OTA update completed successfully.");
+        ESP_LOGI(TAG, "Rebooting the device...");
+        esp_restart();
+    } else {
+        ESP_LOGE(TAG, "OTA update failed with error code: %s", esp_err_to_name(ret));
+    }
+
+    free(update_param);  // Free the allocated memory for parameters
+    vTaskDelete(NULL);   // Delete the OTA update task
 }

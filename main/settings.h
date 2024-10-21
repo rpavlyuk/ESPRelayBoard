@@ -4,10 +4,6 @@
 #include "common.h"
 #include "mqtt.h"
 
-/**
- * Initialization variables
- */
-extern int device_ready;
 
 /**
  * General variable settings
@@ -35,6 +31,8 @@ extern int device_ready;
 
 #define RELAY_GPIO_PIN_MIN  0
 #define RELAY_GPIO_PIN_MAX  39
+
+#define OTA_UPDATE_URL_LENGTH  256
 
 /**
  * General constants
@@ -72,6 +70,8 @@ extern int device_ready;
 #define S_KEY_CONTACT_SENSORS_COUNT     "relay_sn_count"
 #define S_KEY_RELAY_REFRESH_INTERVAL    "relay_refr_int"
 
+#define S_KEY_OTA_UPDATE_URL            "ota_update_url"
+
 /**
  * Settings default values
  */
@@ -95,6 +95,21 @@ extern int device_ready;
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
+#define S_DEFAULT_OTA_UPDATE_URL                 "http://localhost:8080/ota/relayboard.bin"
+
+/** 
+ * Initialize types
+ */
+
+/* Structure to pass the OTA URL to the task */
+typedef struct {
+    char ota_url[OTA_UPDATE_URL_LENGTH];  // Adjust the size if needed
+} ota_update_param_t;
+
+/**
+ * Initialization variables
+ */
+extern int device_ready;
 
 /**
  * Routines
@@ -127,5 +142,20 @@ void generate_serial_number(char *serial_number);
  * @brief: Init the filesystem / partition
  */
 void init_filesystem();
+
+/**
+ * @brief: Call OTA update
+ */
+esp_err_t perform_ota_update(const char *url);
+
+/**
+ * @brief: Check if the OTA partitions are valid
+ */
+esp_err_t check_ota_partitions(void);
+
+/**
+ * @brief: OTA update task
+ */
+void ota_update_task(void *param);
 
 #endif

@@ -131,6 +131,16 @@ void run_http_server(void *param) {
             .user_ctx = NULL                     
         };
         httpd_register_uri_handler(server, &relays_data);
+
+        httpd_uri_t ota_update_uri = {
+            .uri      = "/ota-update",  // URL endpoint
+            .method   = HTTP_POST,       // HTTP method
+            .handler  = ota_post_handler, // Function to handle the request
+            .user_ctx = NULL            // User context, if needed
+        };
+
+        // Register the OTA update URI handler
+        httpd_register_uri_handler(server, &ota_update_uri);
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -193,6 +203,8 @@ void assign_static_page_variables(char *html_output) {
     replace_placeholder(html_output, "{MIN_RELAY_GPIO_PIN}", f_len);
     snprintf(f_len, sizeof(f_len), "%i", RELAY_GPIO_PIN_MAX);
     replace_placeholder(html_output, "{MAX_RELAY_GPIO_PIN}", f_len);
+
+    replace_placeholder(html_output, "{VAL_SW_VERSION}", DEVICE_SW_VERSION);
 }
 
 /**
@@ -386,6 +398,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *device_id = NULL;
     char *device_serial = NULL;
     char *ca_cert = NULL;
+    char *ota_update_url = NULL;
 
     uint16_t mqtt_connect;
     uint16_t mqtt_port;
@@ -411,6 +424,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, &relay_refr_int));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
     // Load the CA certificate
     if (load_ca_certificate(&ca_cert) != ESP_OK) {
@@ -451,6 +465,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
+    replace_placeholder(html_output, "{VAL_OTA_UPDATE_URL}", ota_update_url);
 
     // replace static fields
     assign_static_page_variables(html_output);
@@ -472,6 +487,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     free(device_id);
     free(device_serial);
     free(ca_cert);
+    free(ota_update_url);
 
     return ESP_OK;
 }
@@ -546,6 +562,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     char *mqtt_password = (char *)malloc(MQTT_PASSWORD_LENGTH);
     char *mqtt_prefix = (char *)malloc(MQTT_PREFIX_LENGTH);
     char *ha_prefix = (char *)malloc(HA_PREFIX_LENGTH);
+    char *ota_update_url = (char *)malloc(OTA_UPDATE_URL_LENGTH);
     char *ca_cert = NULL;
 
     char mqtt_port_str[6];
@@ -568,6 +585,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     extract_param_value(buf, "relay_ch_count=", relay_ch_count_str, sizeof(relay_ch_count_str));
     extract_param_value(buf, "relay_sn_count=", relay_sn_count_str, sizeof(relay_sn_count_str));
     extract_param_value(buf, "relay_refr_int=", relay_refr_int_str, sizeof(relay_refr_int_str));
+    extract_param_value(buf, "ota_update_url=", ota_update_url, OTA_UPDATE_URL_LENGTH);
 
 
 
@@ -587,6 +605,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     url_decode(mqtt_password);
     url_decode(mqtt_prefix);
     url_decode(ha_prefix);
+    url_decode(ota_update_url);
 
     // dump parameters for debugging pursposes
     ESP_LOGI(TAG, "Received configuration parameters:");
@@ -602,6 +621,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "relay_refr_int: %i", relay_refr_int);
     ESP_LOGI(TAG, "relay_ch_count: %i", relay_ch_count);
     ESP_LOGI(TAG, "relay_sn_count: %i", relay_sn_count);
+    ESP_LOGI(TAG, "ota_update_url: %s", ota_update_url);
 
 
     // Save parsed values to NVS or apply them directly
@@ -617,6 +637,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, relay_refr_int));
     ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, relay_ch_count));
     ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, relay_sn_count));
+    ESP_ERROR_CHECK(nvs_write_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, ota_update_url));
 
 
     /** Load and display settings */
@@ -628,6 +649,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     free(mqtt_password);
     free(mqtt_prefix);
     free(ha_prefix);
+    free(ota_update_url);
 
     // declaring NULL pointers for neccessary variables
     char *device_id = NULL;
@@ -640,6 +662,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     mqtt_password = NULL;
     mqtt_prefix = NULL;
     ha_prefix = NULL;
+    ota_update_url = NULL;
 
     // Load settings from NVS (use default values if not set)
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_SERVER, &mqtt_server));
@@ -656,6 +679,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, &relay_refr_int));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
     // Load the CA certificate
     if (load_ca_certificate(&ca_cert) != ESP_OK) {
@@ -692,6 +716,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
+    replace_placeholder(html_output, "{VAL_OTA_UPDATE_URL}", ota_update_url);
 
     // replace static fields
     assign_static_page_variables(html_output);
@@ -714,6 +739,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     free(device_id);
     free(device_serial);
     free(ca_cert);
+    free(ota_update_url);
 
     return ESP_OK;
 }
@@ -1517,5 +1543,98 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     cJSON_Delete(response);  // Free the root JSON object
 
     return ret;
+}
+
+
+/**
+ * @brief HTTP GET handler to trigger OTA update via web interface.
+ *
+ * This function is registered as an HTTP GET handler that triggers an OTA update
+ * using the URL stored in NVS. The OTA update process is started, and if successful,
+ * the device will send a response indicating the update has started and reboot afterward.
+ *
+ * @param req The HTTP request object.
+ * @return ESP_OK on successful request handling, or an error code otherwise.
+ */
+esp_err_t ota_post_handler(httpd_req_t *req) {
+    char *ota_url = NULL;
+
+    // Allocate memory dynamically for template and output
+    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
+    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+
+    if (html_template == NULL || html_output == NULL) {
+        ESP_LOGE(TAG, "Memory allocation failed");
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
+    FILE *f = fopen("/spiffs/firmware-updating.html", "r");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for reading");
+        free(html_template);
+        free(html_output);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+
+    // Load the template into html_template
+    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    fclose(f);
+    html_template[len] = '\0';  // Null-terminate the string
+
+    // Copy template into html_output for modification
+    strcpy(html_output, html_template);
+    
+    // Get the OTA URL from NVS
+    if (nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_url) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read OTA URL from NVS");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "Starting OTA via Web with URL: %s", ota_url);
+
+    // replace values
+    replace_placeholder(html_output, "{VAL_SW_FIRMWARE_URL}", ota_url);
+        
+    // replace static fields
+    assign_static_page_variables(html_output);
+
+
+    // Allocate memory for the task parameter
+    ota_update_param_t *update_param = malloc(sizeof(ota_update_param_t));
+    if (update_param == NULL) {
+        httpd_resp_send_500(req);  // Send error response in case of memory allocation failure
+        return ESP_FAIL;
+    }
+
+    // Copy the OTA URL into the task parameter
+    strcpy(update_param->ota_url, ota_url);
+
+    // Create the OTA update task, passing the OTA URL as the task parameter
+    if (xTaskCreate(ota_update_task, "ota_update_task", 8192, update_param, 5, NULL) != pdPASS) {
+        free(update_param);  // Free memory if task creation failed
+        free(ota_url);
+        free(html_template);
+        free(html_output);
+        httpd_resp_send_500(req);  // Send error response if task creation fails
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, html_output, strlen(html_output));
+
+
+    // Free dynamically allocated memory if needed
+    free(ota_url);
+    free(html_template);
+    free(html_output);
+
+
+    return ESP_OK;
 }
 
