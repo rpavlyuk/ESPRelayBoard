@@ -26,6 +26,16 @@ To get started, you will need:
 - **Software**:
   - ESP-IDF framework (version 4.4 or higher recommended installed and configured).
 
+## Tested Relay Boards / Configurations
+* [LilyGO 4 Ch T-Relay](https://www.lilygo.cc/products/t-relay)
+  * Assign pins to the relay channels according to LilyGO specs: `{21, 19, 18, 05}`
+* [ESP32_Relay x2](https://aliexpress.com/item/1005005926554704.html) from AliExpress
+  * Use pins: 16 (channel 0) and 17 (channel 1). No inversion.
+* [ESP32-S3-DevKitM-1](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html) + [2Ch Relay Board](https://aliexpress.com/item/1005006402415669.html)
+  * Wire as shown in *Wiring* section below
+
+
+
 ## Wiring
 No need to do any wiring if you're using fully built ESP32-based relay board.
 
