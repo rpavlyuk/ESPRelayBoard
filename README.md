@@ -123,7 +123,7 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
 * Use the *ESP SoftAP Prov* ([iOS](https://apps.apple.com/us/app/esp-softap-provisioning/id1474040630), [Android](https://play.google.com/store/apps/details?id=com.espressif.provsoftap&hl=en)) mobile app to connect to the device and configure WiFi settings. Read more [here](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/provisioning/provisioning.html#provisioning-tools) if you want to know more about the SoftAP provisioning.
 
 ### Device Setup
-* Device will initiate itself with default settings once the WiFi was provisioned. All further configuration, including **sensor calibration**, will/can be made via WEB interface.
+* Device will initiate itself with default settings once the WiFi was provisioned. All further configuration, including **relays / units management**, will/can be made via WEB interface.
 > [!NOTE]
 > Currently only DHCP mode is supported.
 
@@ -135,7 +135,7 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
     - `Disabled`: MQTT is disabled
     - `Connect Once`: MQTT is enabled. Connection will be established, but no reconnect attempts will be made once it is dropped.
     - `Auto-Connect`: MQTT is enabled. Connection will operate in keep-alive mode, reconnecting on failures.
-  * `MQTT Server`, `MQTT Port`, `MQTT Protocol`, `MQTT User`, `MQTT Password`: MQTT connection string parameters. Protocol `mqtts` is supported but CA/root certificate management UI has not been implemented yet.
+  * `MQTT Server`, `MQTT Port`, `MQTT Protocol`, `MQTT User`, `MQTT Password`: MQTT connection string parameters.
   * `MQTT Prefix`: top level path in the MQTT tree. The path will look like: `<MQTT_prefix>/<device_id>/...`
   * `HomeAssistant Device integration MQTT Prefix`: HomeAssistant MQTT device auto-discovery prefix. Usually, it is set to `homeassistant`
   * `HomeAssistant Device update interval (ms)`: how often to update device definitions at HomeAssistant.
@@ -201,7 +201,7 @@ idf.py build
 
 ## WEB API
 The device is exposing a simple JSON API to control relays and get units information..
-1. Get all units (relays and sensors):
+1. **Get all units (relays and sensors):**
  * Endpoint: `/api/relays`
  * Method: GET
  * Request payload (example): N/A
@@ -248,7 +248,7 @@ The device is exposing a simple JSON API to control relays and get units informa
 	}
 }
  ```
-2. Update unit information:
+2. **Update unit information:**
  * Endpoint: `/api/relay/update`
  * Method: POST
  * Request payload (example):
@@ -273,7 +273,7 @@ The device is exposing a simple JSON API to control relays and get units informa
 	}
 }
  ```
-3. Get device status:
+3. **Get device status:**
  * Endpoint: `/api/status`
  * Method: GET
  * Request payload (example): N/A
