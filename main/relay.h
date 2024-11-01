@@ -50,7 +50,7 @@ typedef struct {
 #define INIT_SENSORS_ON_LOAD     true
 #define INIT_SENSORS_ON_GET      true
 
-#define SAFE_GPIO_COUNT 18
+#define SAFE_GPIO_COUNT 24
 extern const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT];
 
 #define DEBOUNCE_TIME_MS 50  // Set the debounce time to 50 milliseconds (adjust as needed)
