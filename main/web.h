@@ -3,7 +3,7 @@
 
 #include "esp_http_server.h"
 
-#define MAX_TEMPLATE_SIZE       16384
+#define MAX_TEMPLATE_SIZE       24576
 #define MAX_TBL_ENTRY_SIZE      2048
 #define MAX_CA_CERT_SIZE        8192
 

@@ -183,14 +183,15 @@ static void log_error_if_nonzero(const char *message, int error_code)
  * identity during the TLS handshake.
  * 
  * @param[out] ca_cert The buffer to store the CA certificate.
+ * @param[in] ca_cert_path The path to the CA certificate file.
  * 
  * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be loaded.
  */
-esp_err_t load_ca_certificate(char **ca_cert)
+esp_err_t load_ca_certificate(char **ca_cert, const char *ca_cert_path)
 {
-    FILE *f = fopen(CA_CERT_PATH, "r");
+    FILE *f = fopen(ca_cert_path, "r");
     if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open CA certificate file");
+        ESP_LOGE(TAG, "Failed to open CA certificate file at path: %s", ca_cert_path);
         return ESP_FAIL;
     }
 
@@ -218,7 +219,7 @@ esp_err_t load_ca_certificate(char **ca_cert)
     (*ca_cert)[cert_size] = '\0';  // Null-terminate the string
 
     fclose(f);
-    ESP_LOGI(TAG, "Successfully loaded CA certificate");
+    ESP_LOGI(TAG, "Successfully loaded CA certificate from path: %s", ca_cert_path);
 
     return ESP_OK;
 }
@@ -230,17 +231,19 @@ esp_err_t load_ca_certificate(char **ca_cert)
  * to verify the MQTT server's identity during the TLS handshake.
  * 
  * @param[in] ca_cert The CA certificate to save.
+ * @param[in] ca_cert_path The path to save the CA certificate.
+ * @param[in] create_if_not_exist Flag to create the file if it does not exist.
  * 
  * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be saved.
  */
-esp_err_t save_ca_certificate(const char *ca_cert)
+esp_err_t save_ca_certificate(const char *ca_cert, const char *ca_cert_path, bool create_if_not_exist)
 {
     if (ca_cert == NULL) {
         ESP_LOGE(TAG, "CA certificate data is NULL");
         return ESP_ERR_INVALID_ARG;
     }
 
-    FILE *f = fopen(CA_CERT_PATH, "w");
+    FILE *f = fopen(ca_cert_path, create_if_not_exist ? "w+" : "w");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open CA certificate file for writing");
         return ESP_FAIL;
@@ -255,7 +258,7 @@ esp_err_t save_ca_certificate(const char *ca_cert)
     }
 
     fclose(f);
-    ESP_LOGI(TAG, "Successfully saved CA certificate");
+    ESP_LOGI(TAG, "Successfully saved CA certificate to file: %s", ca_cert_path);
 
     return ESP_OK;
 }
@@ -418,14 +421,14 @@ esp_err_t mqtt_init(void) {
     if (strcmp(mqtt_protocol,"mqtts") == 0) {
         // Load the CA certificate
         char *ca_cert = NULL;
-        if (load_ca_certificate(&ca_cert) != ESP_OK) {
+        if (load_ca_certificate(&ca_cert, CA_CERT_PATH_MQTTS) != ESP_OK) {
             ESP_LOGW(TAG, "Failed to load CA certificate");
             if (strcmp(mqtt_protocol,"mqtts") == 0) {
                 ESP_LOGE(TAG, "MQTTS protocol cannot be managed without CA certificate.");
                 return ESP_FAIL;
             }
         } else {
-            ESP_LOGI(TAG, "Loaded CA certificate: %s", CA_CERT_PATH);
+            ESP_LOGI(TAG, "Loaded CA certificate: %s", CA_CERT_PATH_MQTTS);
         }
         if (ca_cert) {
             mqtt_cfg.broker.verification.certificate = ca_cert;

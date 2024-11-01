@@ -513,7 +513,7 @@ esp_err_t perform_ota_update(const char *url) {
     char *ca_cert = NULL;
     
     // Load the CA root certificate
-    if (load_ca_certificate(&ca_cert) != ESP_OK) {
+    if (load_ca_certificate(&ca_cert, CA_CERT_PATH_HTTPS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load CA certificate. Proceeding without it.");
     }
 

@@ -145,7 +145,7 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
   * `Contact sensors count`: number of contact sensors you'd like to activate  and monitor
   * `Refresh interval (ms)`: relay/sensor reading update interval. Used in WEB interface.
-* `CA / Root Certificate`: PEM formatted SSL root/intermediate certification path. Used by MQTTS connection and HTTPS firmware OTA update.
+* `CA / Root Certificates`: PEM formatted SSL root/intermediate certificate. Used by MQTTS connection and HTTPS firmware OTA update. You can separately configure the certificate for MQTT and for OTA update via HTTPS.
 
 Changing number of sensors or relays requires a restart of the device. Use button `Reboot Device` at the bottom of configuration page.
 
@@ -190,9 +190,7 @@ You can either point `OTA Update URL` to one of the `.bin` files placed in *Rele
 ```
 idf.py build
 ```
-* Place the file `./build/ESPRelayBoard.bin` to a WEB server that is accessible by the device. If you use HTTPS then make sure you've set correct `CA / Root Certificate`.
-> [!NOTE]
-> The same certificate is used for `mqtts` connection, thus is you're using different root certificates for `mqtts` and `https` update, then make sure you restore the original one for `mqtts` once the OTA is complete.
+* Place the file `./build/ESPRelayBoard.bin` to a WEB server that is accessible by the device. If you use HTTPS then make sure you've set correct `CA / Root Certificate` at `HTTPS` tab.
 * Adjust / provide `OTA Update URL` if needed.
 * Click `Update Device` button on WEB UI. Device will update itself (takes 2-5 mins depending on the connection speed) and reboot with new hardware.
 * The device will revert to the previous (running) firmware if the OTA process crashes or is not complete successfully.

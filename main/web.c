@@ -397,7 +397,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *ha_prefix = NULL;
     char *device_id = NULL;
     char *device_serial = NULL;
-    char *ca_cert = NULL;
+    char *ca_cert_mqtts = NULL;
+    char *ca_cert_https = NULL;
     char *ota_update_url = NULL;
 
     uint16_t mqtt_connect;
@@ -426,12 +427,25 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
-    // Load the CA certificate
-    if (load_ca_certificate(&ca_cert) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load CA certificate from %s", CA_CERT_PATH);
+    // Load MQTTS CA certificate
+    if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded CA certificate: %s", CA_CERT_PATH);
+        ESP_LOGI(TAG, "Loaded MQTTS CA certificate: %s", CA_CERT_PATH_MQTTS);
+    }
+    // Load HTTPS CA certificate
+    if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, "Loaded HTTPS CA certificate: %s", CA_CERT_PATH_HTTPS);
     }
 
     // Replace placeholders in the template with actual values
@@ -461,7 +475,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_MESSAGE}", message);
     replace_placeholder(html_output, "{VAL_HA_UPDATE_INTERVAL}", ha_upd_intervl_str);
     replace_placeholder(html_output, "{VAL_MQTT_CONNECT}", mqtt_connect_str);
-    replace_placeholder(html_output, "{VAL_CA_CERT}", ca_cert);
+    replace_placeholder(html_output, "{VAL_CA_CERT_MQTTS}", ca_cert_mqtts);
+    replace_placeholder(html_output, "{VAL_CA_CERT_HTTPS}", ca_cert_https);
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
@@ -486,7 +501,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     free(ha_prefix);
     free(device_id);
     free(device_serial);
-    free(ca_cert);
+    free(ca_cert_mqtts);
+    free(ca_cert_https);
     free(ota_update_url);
 
     return ESP_OK;
@@ -563,7 +579,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     char *mqtt_prefix = (char *)malloc(MQTT_PREFIX_LENGTH);
     char *ha_prefix = (char *)malloc(HA_PREFIX_LENGTH);
     char *ota_update_url = (char *)malloc(OTA_UPDATE_URL_LENGTH);
-    char *ca_cert = NULL;
+    char *ca_cert_mqtts = NULL;
+    char *ca_cert_https = NULL;
 
     char mqtt_port_str[6];
     char ha_upd_intervl_str[10];
@@ -681,12 +698,19 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
-    // Load the CA certificate
-    if (load_ca_certificate(&ca_cert) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load CA certificate from %s", CA_CERT_PATH);
+    // Load MQTTS CA certificate
+    if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded CA certificate: %s", CA_CERT_PATH);
+        ESP_LOGI(TAG, "Loaded MQTTS CA certificate: %s", CA_CERT_PATH_MQTTS);
+    }
+    // Load HTTPS CA certificate
+    if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
+        return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, "Loaded HTTPS CA certificate: %s", CA_CERT_PATH_HTTPS);
     }
 
     // Replace placeholders in the template with actual values
@@ -712,7 +736,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_MESSAGE}", success_message);
     replace_placeholder(html_output, "{VAL_HA_UPDATE_INTERVAL}", ha_upd_intervl_str);
     replace_placeholder(html_output, "{VAL_MQTT_CONNECT}", mqtt_connect_str);
-    replace_placeholder(html_output, "{VAL_CA_CERT}", ca_cert);
+    replace_placeholder(html_output, "{VAL_CA_CERT_MQTTS}", ca_cert_mqtts);
+    replace_placeholder(html_output, "{VAL_CA_CERT_HTTPS}", ca_cert_https);
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
@@ -738,7 +763,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     free(ha_prefix);
     free(device_id);
     free(device_serial);
-    free(ca_cert);
+    free(ca_cert_mqtts);
+    free(ca_cert_https);
     free(ota_update_url);
 
     return ESP_OK;
@@ -755,32 +781,52 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
  * @return ESP_OK on success, or an error code on failure
  */
 static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
+
+    ESP_LOGI(TAG, "Processing certificate saving web request");
+
     // Buffer to hold the received certificate
     char buf[512];
     memset(buf, 0, sizeof(buf));  // Initialize the buffer with zeros to avoid any garbage
     int total_len = req->content_len;
     int received = 0;
 
-    // Send HTML response with a redirect after 30 seconds
-    const char *success_html = "<html>"
-                                "<head>"
-                                    "<title>Redirecting...</title>"
-                                    "<meta http-equiv=\"refresh\" content=\"5;url=/\" />"
-                                    "<script>"
-                                        "setTimeout(function() { window.location.href = '/'; }, 5000);"
-                                    "</script>"
-                                "</head>"
-                                "<body>"
-                                    "<h2>Certficate has been saved successfully!</h2>"
-                                    "<p>Please wait, you will be redirected to the <a href=\"/\">home page</a> in 5 seconds.</p>"
-                                "</body>"
-                              "</html>";
+    // Allocate memory dynamically for template and output
+    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
+    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+
+    if (html_template == NULL || html_output == NULL) {
+        ESP_LOGE(TAG, "Memory allocation failed");
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
+    FILE *f = fopen("/spiffs/ca-cert-saving.html", "r");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for reading");
+        free(html_template);
+        free(html_output);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+
+    // Load the template into html_template
+    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    fclose(f);
+    html_template[len] = '\0';  // Null-terminate the string
+
+    // Copy template into html_output for modification
+    strcpy(html_output, html_template);
 
 
     // Allocate memory for the certificate outside the stack
     char *content = (char *)malloc(total_len + 1);
     if (content == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for CA certificate");
+        free(html_template);
+        free(html_output);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
         return ESP_ERR_NO_MEM;
     }
@@ -791,6 +837,8 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
         if (ret <= 0) {
             ESP_LOGE(TAG, "Failed to receive POST data");
             free(content); // Free the allocated memory in case of failure
+            free(html_template);
+            free(html_output);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
             return ESP_FAIL;
         }
@@ -800,14 +848,32 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
 
     ESP_LOGI(TAG, "POST Content:\n%s", content);
 
+    // Extract certificate type from the request CA_CERT_TYPE_LENGTH
+    char ca_type[MAX_CA_CERT_SIZE];
+    int ca_type_length = extract_param_value(content, "cert_type=", ca_type, MAX_CA_CERT_SIZE);
+    if (ca_type_length <= 0) {
+        ESP_LOGE(TAG, "Failed to extract CA certificate type from the received data");
+        free(content);
+        free(html_template);
+        free(html_output);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to extract certificate type");
+        return ESP_FAIL;
+    }
+
+    // determine certificate key based on the type
+    const char *ca_key = (strcmp(ca_type, "mqtts") == 0) ? "ca_cert_mqtts=" : "ca_cert_https=";
+    ESP_LOGI(TAG, "Will use key (%s) to extract the certificate according to its type (%s)", ca_key, ca_type);
+
     // extract ca_cert from the output
     char *ca_cert = (char *)malloc(MAX_CA_CERT_SIZE);
     // Extract the certificate
-    int cert_length = extract_param_value(content, "ca_cert=", ca_cert, MAX_CA_CERT_SIZE);
+    int cert_length = extract_param_value(content, ca_key, ca_cert, MAX_CA_CERT_SIZE);
     if (cert_length <= 0) {
         ESP_LOGE(TAG, "Failed to extract CA certificate from the received data");
         free(content);
         free(ca_cert);
+        free(html_template);
+        free(html_output);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to extract certificate");
         return ESP_FAIL;
     }
@@ -819,21 +885,31 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     str_trunc_after(ca_cert, "-----END CERTIFICATE-----");
 
     // Save the certificate
-    esp_err_t err = save_ca_certificate(ca_cert);
+    const char *ca_path = (strcmp(ca_type, "mqtts") == 0) ? CA_CERT_PATH_MQTTS : CA_CERT_PATH_HTTPS;
+    ESP_LOGI(TAG, "Saving certificate to %s", ca_path);
+    replace_placeholder(html_output, "{VAL_CA_PATH}", ca_path);
+
+    esp_err_t err = save_ca_certificate(ca_cert, ca_path, true);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save CA certificate");
         free(content);
         free(ca_cert);
+        free(html_template);
+        free(html_output);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save certificate");
         return ESP_FAIL;
     }
 
     free(content);
     free(ca_cert); // Free the allocated memory after saving
-    // Send a response indicating success
-    httpd_resp_sendstr(req, success_html);
-    ESP_LOGI(TAG, "CA certificate saved successfully");
 
+    // Send a response indicating success
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_sendstr(req, html_output);
+    ESP_LOGI(TAG, "CA certificate saving request processed successfully");
+
+    free(html_template);
+    free(html_output);
     return ESP_OK;
 }
 

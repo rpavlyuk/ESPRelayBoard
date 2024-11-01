@@ -16,6 +16,7 @@
 #define MQTT_PASSWORD_LENGTH     64
 #define MQTT_PREFIX_LENGTH       128
 #define HA_PREFIX_LENGTH         128
+#define CA_CERT_TYPE_LENGTH      6
 
 #define HA_UPDATE_INTERVAL_MIN  60000           // Once a minute
 #define HA_UPDATE_INTERVAL_MAX  86400000        // Once a day (24 hr)
@@ -38,7 +39,6 @@
  * General constants
  */
 #define S_NAMESPACE         "settings"
-
 #define S_DEVICE_FAMILY       "switch"
 
 /**
@@ -96,6 +96,13 @@
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
 #define S_DEFAULT_OTA_UPDATE_URL                 "http://localhost:8080/ota/relayboard.bin"
+
+/**
+ * Paths
+ */
+
+#define CA_CERT_PATH_MQTTS  "/spiffs/ca-mqtts.crt"
+#define CA_CERT_PATH_HTTPS  "/spiffs/ca-https.crt"
 
 /** 
  * Initialize types
