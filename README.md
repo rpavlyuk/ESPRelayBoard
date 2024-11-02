@@ -10,11 +10,36 @@ The device supports two types of units:
 * **Relay**: The board controls an actuator which is controlled by HIGH/LOW logical states
 * **Contact Sensor**: The board monitors contact state between selected GPIO(s) and GND, providing information either contact is closed or open
 
-### Features
+## Table of Contents
+1. [Purpose](#purpose)
+2. [Features](#features)
+3. [Prerequisites: What you need to start](#prerequisites)
+4. [Tested Relay Boards / Configurations](#tested-relay-boards--configurations)
+5. [Wiring Sample](#wiring)
+6. [Getting started: Building and Flashing](#building-and-flashing)
+7. [Initiation: Making device to work](#initiation)
+	- [First boot](#first-boot)
+	- [WiFi Setup](#wifi-setup)
+	- [Device Setup](#device-setup)
+8. [WEB Setup](#web-setup)
+9. [Units (Relays) Configuration](#units-configuration)
+10. [Testing the Setup](#testing-the-setup)
+	 - [Relay / Actuator](#relay--actuator)
+	 - [Contact Sensor](#contact-sensor)
+11. [Home Assistant Integration](#home-assistant-integration)
+12. [OTA Firmware Update](#ota-firmware-update)
+13. [WEB API](#web-api)
+14. [Known issues, problems and TODOs](#known-issues-problems-and-todos)
+15. [License and Credits](#license-and-credits)
+
+## Features
 - **WiFi Connectivity**: Supports connecting to WiFi for remote monitoring and control.
+- **Soft Configuration**: GPIO pins that relays are connected to and other settings are defined via user interface and are stored in NVS (EEPROM).
+- **Relay State Memory**: Relay (actuators) states are written to NVS (EEPROM) memory and will be restored after power loss.
 - **MQTT Support**: Publishes relay and contact sensors states via MQTT for further integration with various platforms.
 - **Home Assistant Integration**: Automatically detects and configures devices in Home Assistant using auto-discovery via MQTT.
 - **Web Interface**: Provides a web-based user interface for configuration, control and monitoring.
+- **Web API**: Simple JSON API is in place should you want to integrate the device into your custom infractucture projects.
 - **OTA (over the air) Firmware Update**: Trigger firmware update via WEB interface from a provided URL.
 
 ## Prerequisites
@@ -25,6 +50,7 @@ To get started, you will need:
   - **OR** ESP32-based relay board with 4Mb flash.
 - **Software**:
   - ESP-IDF framework (version 4.4 or higher recommended installed and configured).
+  - Operating system: `Linux` (tested, recommended), `macOS` (tested, recommended), `Windows` (tested)
 
 ## Tested Relay Boards / Configurations
 * [LilyGO 4 Ch T-Relay](https://www.lilygo.cc/products/t-relay)
@@ -35,9 +61,8 @@ To get started, you will need:
   * Wire as shown in *Wiring* section below
 
 
-
 ## Wiring
-No need to do any wiring if you're using fully built ESP32-based relay board.
+No need to do any wiring if you're using fully built ESP32-based relay board. It's just already done :)
 
 However, if you're using a custom built combination of ESP32 board and the relay module, then you can wire them as following (example for 2 relay module):
 ```
@@ -53,26 +78,30 @@ However, if you're using a custom built combination of ESP32 board and the relay
 | IN2        | IO05      |
 +------------+-----------+
 ```
-This is a default (sample) wiring and do not worry if you'd like to use other pins: you can configure them via WEB interface
+This is just a default (sample) wiring and do not worry if you'd like to use other pins: you can configure them via WEB interface
 > [!NOTE]
 > But remember one thing: not every pin from ESP32 board/module can be used to control relays in this project, because some of those are reserved for system purposes and can make the device very unstable. Make sure that pins you'd like to use are in this list:
 ```
-{4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31}
+{4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39}
 ```
 
 ## Building and Flashing
 1. **Setup the ESP-IDF Environment**:
-   - Follow the official [ESP-IDF setup guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html) to configure your development environment.
-   - Further on we will assume, that you're using Unix-based OS (Linux, macos) and you've installed ESP-IDF into `$HOME/esp-idf` folder.
+   - Follow the official [ESP-IDF setup guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html#ide) to configure your development environment. The installation approach will be different depending on the OS you use.
+   - Further on we will assume, that you're using Unix-based OS (Linux, macOS) and you've installed ESP-IDF into `$HOME/esp-idf` folder. Note, that the project has been tested to be built under `Windows`, but the setup process and the commands might differ slightly.
 2. **Clone this Repository**:
    ```bash
    git clone https://github.com/rpavlyuk/ESPRelayBoard
    cd ESPRelayBoard
    ```
 3. **Initiate ESP-IDF**:
-  This will map the source folder to ESP-IDF framework and will enable all needed global variables.
+  This will map the source folder to ESP-IDF framework and will enable all needed global variables (macOS, Linux).
    ```bash
    . $HOME/esp-idf/export.sh
+   ```
+   **OR** For Windows, start `ESP IDF vX.X Powershell` from Programs menu and change directory to project's root. E.g.:
+   ```
+   cd D:\Work\esp\projects\ESPRelayBoard
    ```
 4. **Build the firmware**:
    ```bash
@@ -82,6 +111,7 @@ This is a default (sample) wiring and do not worry if you'd like to use other pi
    You may also get build errors if you've selected other board type then `ESP32-C6` or `ESP32-S3`.
 5. **Determine the port**:
    A connected ESP32 device is opening USB-2-Serial interface, which your system might see as `/dev/tty.usbmodem1101` (macos example) or `/dev/ttyUSB0` (Linux example). Use `ls -al /dev` command to see the exact one.
+   Also, please, refer [this article](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/establish-serial-connection.html) to get much more comprehensive help and instructions on how to determine serial port depending on your OS.
 6. *(recommended)* **Erase the Flash**
    Remove all data from the ESP32 board (incl. WiFi connection settings and NVS storage).
    ```
@@ -253,6 +283,7 @@ The device is exposing a simple JSON API to control relays and get units informa
  ```
  {"data":{"device_serial":"0O0RSJ3Q2XF03F8U2Z4CVLWUAFOOQ0TO","relay_key":"relay_ch_0","relay_channel":0,"relay_gpio_pin":4,"relay_enabled":true,"relay_inverted":true}}
  ```
+   Required parameters: `device_serial`, `relay_key`
  * Response payload (example):
  ```
  {
