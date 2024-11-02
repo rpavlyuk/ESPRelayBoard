@@ -16,19 +16,16 @@ spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
 # Define the major version
 set(MAJOR_VERSION "1.0.1")
 
-# Find the path to the bash command
-find_program(BASH_PROGRAM bash)
+# Find Python interpreter
+find_package(Python3 REQUIRED)
 
-if(NOT BASH_PROGRAM)
-    message(FATAL_ERROR "Bash not found. Please install Bash.")
-endif()
-
-message(STATUS "Bash found at: ${BASH_PROGRAM}")
-
-# Add a custom target to run the make-version.sh script
+# Add a custom target to run the make_version.py script
 add_custom_target(
     make_version ALL
-    COMMAND ${BASH_PROGRAM} ${CMAKE_SOURCE_DIR}/util/make-version.sh ${CMAKE_SOURCE_DIR} ${MAJOR_VERSION}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/util/make_version.py ${CMAKE_SOURCE_DIR} ${MAJOR_VERSION}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running make-version.sh script"
+    COMMENT "Running make_version.py script"
 )
+
+# Ensure that make_version runs before building the app
+add_dependencies(app make_version)
