@@ -141,6 +141,17 @@ void run_http_server(void *param) {
 
         // Register the OTA update URI handler
         httpd_register_uri_handler(server, &ota_update_uri);
+
+        httpd_uri_t reset_uri = {
+            .uri      = "/reset",  // URL endpoint
+            .method   = HTTP_POST,       // HTTP method
+            .handler  = reset_post_handler, // Function to handle the request
+            .user_ctx = NULL            // User context, if needed
+        };
+
+        // Register the reset URI handler
+        httpd_register_uri_handler(server, &reset_uri);
+
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -1714,3 +1725,90 @@ esp_err_t ota_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+
+
+/**
+ * @brief HTTP POST handler to reset the device to factory settings.
+ *
+ * This function is registered as an HTTP POST handler that resets the device to factory settings.
+ * It reads the device ID and serial from NVS, validates them against the request, and performs the reset action.
+ * The device will reboot after the reset action is completed.
+ *
+ * @param req The HTTP request object.
+ * @return ESP_OK on successful request handling, or an error code otherwise.
+ */
+esp_err_t reset_post_handler(httpd_req_t *req) {
+
+    // Extract form data
+    char buf[1024];
+    memset(buf, 0, sizeof(buf));  // Initialize the buffer with zeros to avoid any garbage
+    int ret, remaining = req->content_len;
+
+    while (remaining > 0) {
+        if ((ret = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)))) <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            return ESP_FAIL;
+        }
+        remaining -= ret;
+    }
+
+    char *device_id = NULL;
+    char *device_serial = NULL;
+    
+    // Read stored device_id and device_serial
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
+    
+    // Extract parameters from request
+    char received_device_id[DEVICE_ID_LENGTH+1];
+    char received_device_serial[DEVICE_SERIAL_LENGTH+1];
+    char action_str[8];
+    int action;
+
+    // Get device_id and device_serial from request
+    extract_param_value(buf, "device_id=", received_device_id, sizeof(received_device_id));
+    extract_param_value(buf, "device_serial=", received_device_serial, sizeof(received_device_serial));
+    
+    // Retrieve action and convert to integer
+    extract_param_value(buf, "action=", action_str, sizeof(action_str));
+    action = (int)atoi(action_str);
+
+    // Validate device_serial and device_id
+    if (strcmp(device_id, received_device_id) != 0 || strcmp(device_serial, received_device_serial) != 0) {
+        ESP_LOGE(TAG, "Device validation failed: mismatched device_id or device_serial.");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    ret = ESP_FAIL;
+
+    // Perform the appropriate reset action
+    switch (action) {
+        case 0:
+            ret = reset_factory_settings();
+            break;
+        case 1:
+            ret = reset_device_settings();
+            break;
+        case 2:
+            ret = reset_wifi_settings();
+            break;
+        default:
+            ESP_LOGE(TAG, "Unknown action requested: %d", action);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+    }
+
+    // Reboot the device if reset action was successful
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Reset action %d completed successfully. Rebooting...", action);
+        return reboot_handler(req);
+    } else {
+        ESP_LOGE(TAG, "Reset action %d failed: %s", action, esp_err_to_name(ret));
+        httpd_resp_send_500(req);
+    }
+
+    return ret;
+}

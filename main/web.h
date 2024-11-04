@@ -32,6 +32,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req);
  */
 static esp_err_t relays_data_get_handler(httpd_req_t *req);
 esp_err_t ota_post_handler(httpd_req_t *req);
+esp_err_t reset_post_handler(httpd_req_t *req);
 
 
 void assign_static_page_variables(char *html_output);

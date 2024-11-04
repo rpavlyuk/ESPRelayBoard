@@ -9,6 +9,8 @@
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "esp_http_client.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
@@ -599,4 +601,79 @@ void ota_update_task(void *param) {
 
     free(update_param);  // Free the allocated memory for parameters
     vTaskDelete(NULL);   // Delete the OTA update task
+}
+
+
+/**
+ * @file settings.c
+ * @brief Helper function to clear all data in NVS (factory reset)
+ * 
+ * This file contains the implementation of a helper function that performs
+ * a factory reset by clearing all data stored in the Non-Volatile Storage (NVS).
+ * 
+ * @note This operation will erase all user settings and data stored in NVS.
+ */
+esp_err_t reset_factory_settings() {
+    esp_err_t ret = nvs_flash_erase();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Factory reset: all data erased from NVS.");
+    } else {
+        ESP_LOGE(TAG, "Failed to erase NVS for factory reset: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+/**
+ * @brief Helper function to clear all keys in the "settings" namespace.
+ *
+ * This function iterates through all keys stored in the "settings" namespace
+ * and removes them. It is useful for resetting the settings to their default
+ * state.
+ */
+esp_err_t reset_device_settings() {
+    nvs_handle_t handle;
+    esp_err_t ret = nvs_open(S_NAMESPACE, NVS_READWRITE, &handle);
+    if (ret == ESP_OK) {
+        ret = nvs_erase_all(handle);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Device settings reset: all keys erased in the '%s' namespace.", S_NAMESPACE);
+        } else {
+            ESP_LOGE(TAG, "Failed to erase '%s' namespace: %s", esp_err_to_name(ret), S_NAMESPACE);
+        }
+        nvs_close(handle);
+    } else {
+        ESP_LOGE(TAG, "Failed to open '%s' namespace: %s", esp_err_to_name(ret), S_NAMESPACE);
+    }
+    return ret;
+}
+
+/**
+ * @brief Resets the Wi-Fi settings to their default values.
+ *
+ * This function resets the Wi-Fi settings stored in the non-volatile storage
+ * to their default values. It is typically used to clear any existing Wi-Fi
+ * configurations and start fresh.
+ *
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_FAIL: Failure
+ */
+esp_err_t reset_wifi_settings() {
+    esp_err_t ret;
+    nvs_handle_t wifi_handle;
+    ret = nvs_open(WIFI_NAMESPACE, NVS_READWRITE, &wifi_handle); // Assuming Wi-Fi settings are stored in WIFI_NAMESPACE namespace
+
+    if (ret == ESP_OK) {
+        ret = nvs_erase_all(wifi_handle);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Wi-Fi settings reset: all keys erased in the '%s' namespace.", WIFI_NAMESPACE);
+        } else {
+            ESP_LOGE(TAG, "Failed to erase '%s' namespace: %s", esp_err_to_name(ret), WIFI_NAMESPACE);
+        }
+        nvs_close(wifi_handle);
+    } else {
+        ESP_LOGE(TAG, "Failed to open '%s' namespace: %s", esp_err_to_name(ret), WIFI_NAMESPACE);
+    }
+
+    return ret;
 }

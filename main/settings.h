@@ -38,8 +38,9 @@
 /**
  * General constants
  */
-#define S_NAMESPACE         "settings"
+#define S_NAMESPACE           "settings"
 #define S_DEVICE_FAMILY       "switch"
+#define WIFI_NAMESPACE        "nvs.net80211"
 
 /**
  * Settings keys
@@ -164,5 +165,20 @@ esp_err_t check_ota_partitions(void);
  * @brief: OTA update task
  */
 void ota_update_task(void *param);
+
+/**
+ * @brief: Reset factory settings
+ */
+esp_err_t reset_factory_settings();
+
+/**
+ * @brief: Reset device settings
+ */
+esp_err_t reset_device_settings();
+
+/**
+ * @brief: Reset WiFi settings
+ */
+esp_err_t reset_wifi_settings();
 
 #endif
