@@ -54,6 +54,9 @@ esp_err_t mqtt_init(void);
 // Call this function when you are shutting down the application or no longer need the MQTT client
 void cleanup_mqtt();
 
+// stop mqtt client
+esp_err_t mqtt_stop(void);
+
 // publish relay to MQTT
 esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay);
 

@@ -9,6 +9,8 @@
 
 
 void run_http_server(void *param);
+esp_err_t stop_http_server(httpd_handle_t server);
+esp_err_t http_stop(void);
 
 static esp_err_t config_get_handler(httpd_req_t *req);
 static esp_err_t submit_post_handler(httpd_req_t *req);

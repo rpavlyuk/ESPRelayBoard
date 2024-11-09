@@ -221,6 +221,9 @@ You can either point `OTA Update URL` to one of the `.bin` files placed in *Rele
 idf.py build
 ```
 * Place the file `./build/ESPRelayBoard.bin` to a WEB server that is accessible by the device. If you use HTTPS then make sure you've set correct `CA / Root Certificate` at `HTTPS` tab.
+* (optional) Place file `./build/storage.bin` in the same WEB server directory as the firmware one. This will update SPIFFS where templates and other files are stored.
+> [!NOTE]
+> CA certificates are stored in SPIFFS, so you might need to update them after the Storage OTA update is complete.
 * Adjust / provide `OTA Update URL` if needed.
 * Click `Update Device` button on WEB UI. Device will update itself (takes 2-5 mins depending on the connection speed) and reboot with new hardware.
 * The device will revert to the previous (running) firmware if the OTA process crashes or is not complete successfully.

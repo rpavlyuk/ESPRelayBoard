@@ -16,6 +16,8 @@
 #include "mqtt.h"
 #include "wifi.h"
 
+static httpd_handle_t server = NULL;
+
 /**
  * @brief: Run the HTTP server
  * 
@@ -34,7 +36,6 @@ void run_http_server(void *param) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    static httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
 
@@ -960,7 +961,7 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Reboot the device
-    esp_restart();
+    system_reboot();
     return ESP_OK;
 }
 
@@ -1632,7 +1633,6 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     return ret;
 }
 
-
 /**
  * @brief HTTP GET handler to trigger OTA update via web interface.
  *
@@ -1725,8 +1725,6 @@ esp_err_t ota_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-
-
 /**
  * @brief HTTP POST handler to reset the device to factory settings.
  *
@@ -1811,4 +1809,36 @@ esp_err_t reset_post_handler(httpd_req_t *req) {
     }
 
     return ret;
+}
+
+/**
+ * @brief Stop the HTTP server
+ * 
+ * This function stops the HTTP server.
+ * 
+ * @param[in] server: The HTTP server handle
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
+esp_err_t stop_http_server(httpd_handle_t server) {
+    // Stop the HTTP server
+    if (server != NULL) {
+        ESP_ERROR_CHECK(httpd_stop(server));
+        server = NULL;
+    } else {
+        ESP_LOGW(TAG, "NULL HTTP server handle");
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+/**
+ * @brief Stop the HTTP server started in the "run_http_server" task
+ * 
+ * This function stops the HTTP server started in the "run_http_server" task.
+ * 
+ * @return ESP_OK on success, or an error code on failure
+ */
+esp_err_t http_stop(void) {
+    return stop_http_server(server);
 }

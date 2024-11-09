@@ -449,6 +449,19 @@ esp_err_t mqtt_init(void) {
     return ret;
 }
 
+/**
+ * @brief Stop the MQTT client.
+ * 
+ * This function stops the MQTT client and frees the resources used by the client.
+ * 
+ * @return esp_err_t    ESP_OK on success, ESP_FAIL if the client cannot be stopped.
+ */
+esp_err_t mqtt_stop(void) {
+    if (mqtt_client) {
+        cleanup_mqtt();
+    }
+    return ESP_OK;
+}
 
 /**
  * @brief Cleanup the MQTT client.
