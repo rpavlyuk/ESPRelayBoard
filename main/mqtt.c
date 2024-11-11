@@ -1,7 +1,10 @@
 #include <stdio.h>
+#include "esp_system.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "non_volatile_storage.h"
+#include "nvs_large.h"
+#include "ca_cert_manager.h"
 #include "mqtt_client.h"
 #include "esp_check.h"
 
@@ -173,94 +176,6 @@ static void log_error_if_nonzero(const char *message, int error_code)
     if (error_code != 0) {
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
     }
-}
-
-/**
- * @brief: Load the CA certificate from the filesystem.
- * 
- * This function loads the CA certificate from the filesystem and stores it in a 
- * dynamically allocated buffer. The certificate is used to verify the MQTT server's
- * identity during the TLS handshake.
- * 
- * @param[out] ca_cert The buffer to store the CA certificate.
- * @param[in] ca_cert_path The path to the CA certificate file.
- * 
- * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be loaded.
- */
-esp_err_t load_ca_certificate(char **ca_cert, const char *ca_cert_path)
-{
-    FILE *f = fopen(ca_cert_path, "r");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open CA certificate file at path: %s", ca_cert_path);
-        return ESP_FAIL;
-    }
-
-    // Seek to the end to find the file size
-    fseek(f, 0, SEEK_END);
-    long cert_size = ftell(f);
-    fseek(f, 0, SEEK_SET);  // Go back to the beginning of the file
-
-    if (cert_size <= 0) {
-        ESP_LOGE(TAG, "Invalid CA certificate file size");
-        fclose(f);
-        return ESP_FAIL;
-    }
-
-    // Allocate memory for the certificate
-    *ca_cert = (char *) malloc(cert_size + 1);  // +1 for the null terminator
-    if (*ca_cert == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for CA certificate");
-        fclose(f);
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Read the certificate into the buffer
-    fread(*ca_cert, 1, cert_size, f);
-    (*ca_cert)[cert_size] = '\0';  // Null-terminate the string
-
-    fclose(f);
-    ESP_LOGI(TAG, "Successfully loaded CA certificate from path: %s", ca_cert_path);
-
-    return ESP_OK;
-}
-
-/**
- * @brief: Save the CA certificate to the filesystem.
- * 
- * This function saves the CA certificate to the filesystem. The certificate is used
- * to verify the MQTT server's identity during the TLS handshake.
- * 
- * @param[in] ca_cert The CA certificate to save.
- * @param[in] ca_cert_path The path to save the CA certificate.
- * @param[in] create_if_not_exist Flag to create the file if it does not exist.
- * 
- * @return esp_err_t    ESP_OK on success, ESP_FAIL if the certificate cannot be saved.
- */
-esp_err_t save_ca_certificate(const char *ca_cert, const char *ca_cert_path, bool create_if_not_exist)
-{
-    if (ca_cert == NULL) {
-        ESP_LOGE(TAG, "CA certificate data is NULL");
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    FILE *f = fopen(ca_cert_path, create_if_not_exist ? "w+" : "w");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open CA certificate file for writing");
-        return ESP_FAIL;
-    }
-
-    // Write the certificate to the file
-    size_t written = fwrite(ca_cert, 1, strlen(ca_cert), f);
-    if (written != strlen(ca_cert)) {
-        ESP_LOGE(TAG, "Failed to write entire CA certificate to file");
-        fclose(f);
-        return ESP_FAIL;
-    }
-
-    fclose(f);
-    ESP_LOGI(TAG, "Successfully saved CA certificate to file: %s", ca_cert_path);
-
-    return ESP_OK;
 }
 
 /**

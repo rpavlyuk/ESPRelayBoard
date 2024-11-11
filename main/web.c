@@ -5,6 +5,7 @@
 
 #include "esp_http_server.h"
 #include "non_volatile_storage.h"
+#include "ca_cert_manager.h"
 #include "cJSON.h"
 
 #include "common.h"
@@ -216,6 +217,9 @@ void assign_static_page_variables(char *html_output) {
     snprintf(f_len, sizeof(f_len), "%i", RELAY_GPIO_PIN_MAX);
     replace_placeholder(html_output, "{MAX_RELAY_GPIO_PIN}", f_len);
 
+    snprintf(f_len, sizeof(f_len), "%i", CA_CERT_LENGTH);
+    replace_placeholder(html_output, "{VAL_CA_CERT_LEN_MAX}", f_len);
+
     replace_placeholder(html_output, "{VAL_SW_VERSION}", DEVICE_SW_VERSION);
 }
 
@@ -409,8 +413,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *ha_prefix = NULL;
     char *device_id = NULL;
     char *device_serial = NULL;
-    char *ca_cert_mqtts = NULL;
-    char *ca_cert_https = NULL;
     char *ota_update_url = NULL;
 
     uint16_t mqtt_connect;
@@ -440,6 +442,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
     // Load MQTTS CA certificate
+    char *ca_cert_mqtts = NULL;
     if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
         if (html_template) free(html_template);
@@ -447,9 +450,10 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded MQTTS CA certificate: %s", CA_CERT_PATH_MQTTS);
+        ESP_LOGD(TAG, "Loaded MQTTS CA certificate: %s", (ca_cert_mqtts == NULL) ? "NULL" : ca_cert_mqtts);
     }
     // Load HTTPS CA certificate
+    char *ca_cert_https = NULL;
     if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
         if (html_template) free(html_template);
@@ -457,7 +461,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded HTTPS CA certificate: %s", CA_CERT_PATH_HTTPS);
+        ESP_LOGD(TAG, "Loaded HTTPS CA certificate: %s", (ca_cert_https == NULL) ? "NULL" : ca_cert_https);
     }
 
     // Replace placeholders in the template with actual values
@@ -591,8 +595,6 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     char *mqtt_prefix = (char *)malloc(MQTT_PREFIX_LENGTH);
     char *ha_prefix = (char *)malloc(HA_PREFIX_LENGTH);
     char *ota_update_url = (char *)malloc(OTA_UPDATE_URL_LENGTH);
-    char *ca_cert_mqtts = NULL;
-    char *ca_cert_https = NULL;
 
     char mqtt_port_str[6];
     char ha_upd_intervl_str[10];
@@ -711,18 +713,26 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
 
     // Load MQTTS CA certificate
+    char *ca_cert_mqtts = NULL;
     if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded MQTTS CA certificate: %s", CA_CERT_PATH_MQTTS);
+        ESP_LOGD(TAG, "Loaded MQTTS CA certificate: %s", (ca_cert_mqtts == NULL) ? "NULL" : ca_cert_mqtts);
     }
     // Load HTTPS CA certificate
+    char *ca_cert_https = NULL;
     if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
+        if (html_template) free(html_template);
+        if (html_output) free(html_output);
+        httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
-        ESP_LOGI(TAG, "Loaded HTTPS CA certificate: %s", CA_CERT_PATH_HTTPS);
+        ESP_LOGD(TAG, "Loaded HTTPS CA certificate: %s", (ca_cert_https == NULL) ? "NULL" : ca_cert_https);
     }
 
     // Replace placeholders in the template with actual values

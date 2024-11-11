@@ -19,6 +19,7 @@
 
 #include "settings.h"
 #include "non_volatile_storage.h"
+#include "ca_cert_manager.h"
 #include "relay.h"
 #include "web.h"
 

@@ -71,7 +71,7 @@
     </form>
     <br/>
     <h3>CA / Root Certificates</h3>
-    <p>These are CA certificates in PEM format that the device will use to validate the SSL certificate if you're using <strong><tt>mqtts</tt></strong> protocol OR you are using <strong><tt>HTTPS URL</tt></strong> to load the firmware from.<br/><b>NOTE:</b> The entire certification path shall be represented, including the root and intermediate certificates, as the device has no root certificates installed.</p>
+    <p>These are CA certificates in PEM format that the device will use to validate the SSL certificate if you're using <strong><tt>mqtts</tt></strong> protocol OR you are using <strong><tt>HTTPS URL</tt></strong> to load the firmware from.<br/><b>NOTE:</b> The entire certification path shall be represented, including the root and intermediate certificates, as the device has no root certificates installed.<br/><i>Max certificate size is {VAL_CA_CERT_LEN_MAX} bytes</i></p>
     <nav>
       <div class="nav nav-tabs" id="nav-tab" role="tablist">
         <button class="nav-link active" id="nav-mqtts-tab" data-bs-toggle="tab" data-bs-target="#nav-mqtts" type="button" role="tab" aria-controls="nav-mqtts" aria-selected="true">MQTTS</button>
@@ -84,7 +84,7 @@
         <p>MQTTS CA Certificate:</p>
         <form action="/ca-cert" method="POST">
           <input type="hidden" name="cert_type" value="mqtts">
-          <textarea id="ca_cert_mqtts_id" name="ca_cert_mqtts" rows="8" cols="40">{VAL_CA_CERT_MQTTS}</textarea>
+          <textarea id="ca_cert_mqtts_id" name="ca_cert_mqtts" rows="8" cols="40" maxlength="{VAL_CA_CERT_LEN_MAX}">{VAL_CA_CERT_MQTTS}</textarea>
           <br/>
           <input type="submit" value="Save Certificate">
           <input type="reset" value="Reset Changes">
@@ -96,7 +96,7 @@
         <p>HTTPS CA Certificate:</p>
         <form action="/ca-cert" method="POST">
           <input type="hidden" name="cert_type" value="https">
-          <textarea id="ca_cert_https_id" name="ca_cert_https" rows="8" cols="40">{VAL_CA_CERT_HTTPS}</textarea>
+          <textarea id="ca_cert_https_id" name="ca_cert_https" rows="8" cols="40" maxlength="{VAL_CA_CERT_LEN_MAX}">{VAL_CA_CERT_HTTPS}</textarea>
           <br/>
           <input type="submit" value="Save Certificate">
           <input type="reset" value="Reset Changes">

@@ -25,6 +25,8 @@ void app_main(void) {
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("mqtt_client", ESP_LOG_VERBOSE);
     esp_log_level_set("esp-tls", ESP_LOG_VERBOSE);
+    esp_log_level_set("non_volatile_storage", ESP_LOG_WARN);
+    esp_log_level_set("NVS_LARGE", ESP_LOG_VERBOSE);
     
     /* Initializations */
 
@@ -96,7 +98,7 @@ void app_main(void) {
         if (_DEVICE_ENABLE_WEB) {
             ESP_LOGI(TAG, "WEB ENABLED!");
 
-            xTaskCreate(run_http_server, "run_http_server", 8192, NULL, 5, NULL);
+            xTaskCreate(run_http_server, "run_http_server", 16384, NULL, 5, NULL);
         }
 
         uint16_t mqtt_connection_mode;

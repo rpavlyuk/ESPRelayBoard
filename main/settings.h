@@ -18,6 +18,7 @@
 #define MQTT_PREFIX_LENGTH       128
 #define HA_PREFIX_LENGTH         128
 #define CA_CERT_TYPE_LENGTH      6
+#define CA_CERT_LENGTH           8192
 
 #define HA_UPDATE_INTERVAL_MIN  60000           // Once a minute
 #define HA_UPDATE_INTERVAL_MAX  86400000        // Once a day (24 hr)
@@ -111,7 +112,7 @@
 /**
  * Static settings
  */
-#define DO_OTA_STORAGE_UPDATE    true
+#define DO_OTA_STORAGE_UPDATE       true
 
 /** 
  * Initialize types
