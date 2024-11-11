@@ -14,9 +14,16 @@
 /**
  * @brief: Load the CA certificate from the filesystem.
  * 
- * This function loads the CA certificate from the filesystem and stores it in a 
- * dynamically allocated buffer. The certificate is used to verify the MQTT server's
- * identity during the TLS handshake.
+ * This function loads the CA certificate from NVS using large string NVS library.
+ * If the certificate is not found in NVS, it will attempt to load the certificate
+ * from the filesystem. If successful, the certificate is saved to NVS for future use.
+ * 
+ * One certificate is saved to NVS, it will be read from NVS and SPIFFS storage will be ignored.
+ * 
+ * The certificate is used to verify the MQTT server's identity during the TLS handshake or
+ * any other secure connection, e.g., HTTPS, especially during HTTPS OTA updates.
+ * 
+ * @note NVS and SPIFFS storage engines shall be initialized before calling this function.
  * 
  * @param[out] ca_cert The buffer to store the CA certificate.
  * @param[in] ca_cert_path The path to the CA certificate file.
@@ -88,8 +95,11 @@ esp_err_t load_ca_certificate(char **ca_cert, const char *ca_cert_path) {
 /**
  * @brief: Save the CA certificate to the filesystem.
  * 
- * This function saves the CA certificate to the filesystem. The certificate is used
- * to verify the MQTT server's identity during the TLS handshake.
+ * This function saves the CA certificate to NVS using large string NVS library (ESP32_NVS_LARGE).
+ * If the certificate is successfully saved to NVS, it will also save the certificate to the filesystem if
+ * the flag DO_SYNC_CA_CERT_TO_SPIFFS is set to true.
+ * 
+ * @note NVS and SPIFFS storage engines shall be initialized before calling this function.
  * 
  * @param[in] ca_cert The CA certificate to save.
  * @param[in] ca_cert_path The path to save the CA certificate.
