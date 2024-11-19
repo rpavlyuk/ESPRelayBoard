@@ -141,7 +141,7 @@ cJSON *ha_device_to_JSON(ha_device_t *device) {
     cJSON_AddStringToObject(root, "via_device", device->via_device);
     cJSON_AddStringToObject(root, "sw_version", device->sw_version);
     if (device->identifiers[0]) {
-        cJSON_AddItemToObject(root, "identifiers", cJSON_CreateStringArray(device->identifiers, 1));
+        cJSON_AddItemToObject(root, "identifiers", cJSON_CreateStringArray((const char *const *)device->identifiers, 1));
     }
 
     return root;

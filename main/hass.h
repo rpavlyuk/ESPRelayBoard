@@ -67,8 +67,8 @@ typedef struct {
     char *unique_id;
     char *value_template;
     bool optimistic;
-    bool *payload_off;
-    bool *payload_on;
+    bool payload_off;
+    bool payload_on;
     char *command_topic;
 } ha_entity_discovery_t;
 

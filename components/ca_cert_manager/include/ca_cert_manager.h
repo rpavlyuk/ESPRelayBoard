@@ -17,6 +17,6 @@ static const char *CRT_MGR_TAG = "Certificate Manager";
 esp_err_t load_ca_certificate(char **ca_cert, const char *ca_cert_path);
 esp_err_t save_ca_certificate(const char *ca_cert, const char *ca_cert_path, bool create_if_not_exist);
 
-char *esp_basename(char *path);
+const char *esp_basename(const char *path);
 
 #endif

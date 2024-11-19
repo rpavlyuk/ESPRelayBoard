@@ -17,7 +17,6 @@
 static heap_trace_record_t trace_buffer[NUM_RECORDS];  // Buffer to store the trace records
 
 void status_task(void *pvParameters) {
-    int period = 3;
     int cycle = 0;
     while (1) {
         ESP_LOGI(STATUS_TAG, "=== System Status ===");

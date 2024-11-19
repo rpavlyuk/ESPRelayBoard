@@ -162,13 +162,14 @@ esp_err_t save_ca_certificate(const char *ca_cert, const char *ca_cert_path, boo
  * This function extracts the base name of a file from its path.
  * 
  * @param path: The file path
+ * @return The base name of the file
  */
-char *esp_basename(char *path) {
+const char *esp_basename(const char *path) {
     if (path == NULL || *path == '\0') {
         return ".";
     }
 
-    char *last_slash = strrchr(path, '/');
+    const char *last_slash = strrchr(path, '/');
     if (last_slash) {
         return last_slash + 1;
     }
