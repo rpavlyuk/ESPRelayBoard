@@ -39,6 +39,8 @@ void run_http_server(void *param) {
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
+    config.stack_size = 16384;
+    config.recv_wait_timeout = 20;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -807,9 +809,14 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing certificate saving web request");
 
     // Buffer to hold the received certificate
-    char buf[512];
+    char buf[1024];
     memset(buf, 0, sizeof(buf));  // Initialize the buffer with zeros to avoid any garbage
     int total_len = req->content_len;
+    ESP_LOGI(TAG, "Total POST content length: %d", total_len);
+    if (total_len == 0) {
+        ESP_LOGE(TAG, "POST content length is 0. Cannot proceed.");
+        return ESP_FAIL;
+    }
     int received = 0;
 
     // Allocate memory dynamically for template and output
@@ -857,7 +864,11 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     while (received < total_len) {
         int ret = httpd_req_recv(req, buf, MIN(total_len - received, sizeof(buf)));
         if (ret <= 0) {
-            ESP_LOGE(TAG, "Failed to receive POST data");
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                ESP_LOGE(TAG, "Timeout while receiving POST data");
+            } else {
+                ESP_LOGE(TAG, "Error while receiving POST data: error %s, code %d", esp_err_to_name(ret), ret);
+            }
             free(content); // Free the allocated memory in case of failure
             free(html_template);
             free(html_output);
