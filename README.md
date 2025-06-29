@@ -4,11 +4,11 @@
 # ESP32 Relay Board Firmware
 
 ## Purpose
-This project provides firmware for an ESP32-based relay boards which you can find in great number in Aliexpress, Amazon or Botland. Alternatively, you can use this firmware if you want to contol any kind of relay's (typically those from SRD-**VDC-SL-C family) or just any digital electronics component that is controlled by HIGH/LOW logical levels.
+This project provides firmware for an ESP32-based relay boards which you can find in great number at Aliexpress, Amazon or Botland. Alternatively, you can use this firmware if you want to contol any kind of relay's (typically those from SRD-**VDC-SL-C family) or just any digital electronics component that is controlled by HIGH/LOW logical levels.
 
 The device supports two types of units:
 * **Relay**: The board controls an actuator which is controlled by HIGH/LOW logical states
-* **Contact Sensor**: The board monitors contact state between selected GPIO(s) and GND, providing information either contact is closed or open
+* **[Dry Contact Sensor](https://www.electrical4u.com/dry-contacts/)**: The board monitors contact state between selected GPIO(s) and GND, providing information either contact is closed or open
 
 ## Table of Contents
 1. [Purpose](#purpose)
@@ -33,6 +33,7 @@ The device supports two types of units:
 15. [License and Credits](#license-and-credits)
 
 ## Features
+- **Open Source**: You see what flash into your device and thus you know what it does from a security standpoint. And what it doesn't.
 - **WiFi Connectivity**: Supports connecting to WiFi for remote monitoring and control.
 - **Soft Configuration**: GPIO pins that relays are connected to and other settings are defined via user interface and are stored in NVS (EEPROM).
 - **Relay State Memory**: Relay (actuators) states are written to NVS (EEPROM) memory and will be restored after power loss.
@@ -45,24 +46,27 @@ The device supports two types of units:
 ## Prerequisites
 To get started, you will need:
 - **Hardware**:
-  - ESP32-C6 or ESP32-S3 microcontroller (both have been tested) with at least 4Mb flash.
+  - ESP32, ESP32-C6 or ESP32-S3 microcontroller (all have been tested) with at least 4Mb flash.
   - Relay. E.g., SRD-05VDC-SL-C-based mechanical relay module.
-  - **OR** ESP32-based relay board with 4Mb flash.
+  - **OR** ESP32-based relay board with 4Mb flash in a single-board composition. Most of such board use `ESP32` variant of ESP32. 
 - **Software**:
-  - ESP-IDF framework (version 4.4 or higher recommended installed and configured).
+  - ESP-IDF framework (version 5.4 or higher recommended installed and configured).
   - Operating system: `Linux` (tested, recommended), `macOS` (tested, recommended), `Windows` (tested)
 
 ## Tested Relay Boards / Configurations
 * [LilyGO 4 Ch T-Relay](https://www.lilygo.cc/products/t-relay)
   * Assign pins to the relay channels according to LilyGO specs: `{21, 19, 18, 05}`
+  * Use `ESP32` as target device.
 * [ESP32_Relay x2](https://aliexpress.com/item/1005005926554704.html) from AliExpress
   * Use pins: 16 (channel 0) and 17 (channel 1). No inversion.
+  * Use `ESP32` as target device.
 * [ESP32-S3-DevKitM-1](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html) + [2Ch Relay Board](https://aliexpress.com/item/1005006402415669.html)
   * Wire as shown in *Wiring* section below
+  * Use `ESP32-S3` as target device.
 
 
 ## Wiring
-No need to do any wiring if you're using fully built ESP32-based relay board. It's just already done :)
+No need to do any wiring if you're using fully built ESP32-based relay board. It's just already done so you can skip this block.
 
 However, if you're using a custom built combination of ESP32 board and the relay module, then you can wire them as following (example for 2 relay module):
 ```
@@ -88,7 +92,7 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
 ## Building and Flashing
 1. **Setup the ESP-IDF Environment**:
    - Follow the official [ESP-IDF setup guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html#ide) to configure your development environment. The installation approach will be different depending on the OS you use.
-   - Further on we will assume, that you're using Unix-based OS (Linux, macOS) and you've installed ESP-IDF into `$HOME/esp-idf` folder. Note, that the project has been tested to be built under `Windows`, but the setup process and the commands might differ slightly.
+   - Further on we will assume, that you're using Unix-based OS (Linux, macOS) and you've installed ESP-IDF into `$HOME/esp/esp-idf` folder. Note, that the project has been tested to be built under `Windows`, but the setup process and the commands might differ slightly.
 2. **Clone this Repository**:
    ```bash
    git clone https://github.com/rpavlyuk/ESPRelayBoard
@@ -97,7 +101,7 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
 3. **Initiate ESP-IDF**:
   This will map the source folder to ESP-IDF framework and will enable all needed global variables (macOS, Linux).
    ```bash
-   . $HOME/esp-idf/export.sh
+   . $HOME/esp/esp-idf/export.sh
    ```
    **OR** For Windows, start `ESP IDF vX.X Powershell` from Programs menu and change directory to project's root. E.g.:
    ```
@@ -108,7 +112,7 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
    idf.py build
    ```
    You will get `idf.py: command not found` if you didn't initiate ESP-IDF in the previous step.
-   You may also get build errors if you've selected other board type then `ESP32-C6` or `ESP32-S3`.
+   You may also get build errors if you've selected other board type then `ESP32-C6`, `ESP32` or `ESP32-S3`.
 5. **Determine the port**:
    A connected ESP32 device is opening USB-2-Serial interface, which your system might see as `/dev/tty.usbmodem1101` (macos example) or `/dev/ttyUSB0` (Linux example). Use `ls -al /dev` command to see the exact one.
    Also, please, refer [this article](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/establish-serial-connection.html) to get much more comprehensive help and instructions on how to determine serial port depending on your OS.
@@ -122,6 +126,7 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
    ```bash
    idf.py -p /dev/ttyUSB0 build flash monitor
    ```
+   You will get the device console log as the result of the command.
 
 > [!NOTE]
 > Every time you change the board type (e.g., from ESP32-C6 to ESP32-S3, the framework is re-creating `sdkconfig` file which makes some very important settings gone. Thus, you (might) need to change/set some settings **if you've changed the device board**:
@@ -138,12 +143,16 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
   * *Component config → ESP System Settings -> Event loop task stack size* to `4096`
   * *Component config → ESP System Settings -> Main task stack size* to `4096`
   * *Component config → ESP System Settings -> Minimal allowed size for shared stack* to `2048`
-* Alternatively, you can use some of the existing configurations that I've prepared for some of ESP32 devices. Those are `sdkconfig.<device>` files in project root. You copy them as `sdkconfig` and that will load all needed settings already. For example, to enable `ESP32-S3` as device, you can:
-```
+* **Alternatively**, you can use some of the existing configurations that I've prepared for some of most popular ESP32 target devices. Those are `sdkconfig.<device>` files in project root. You simply copy them as `sdkconfig` and that will load all needed settings, no need to go to `menuconfig` as described in the section above. For example, to enable `ESP32-S3` as device, you can:
+```bash
 cp -a sdkconfig.esp32-s3 sdkconfig
 ```
 > [!NOTE]
 > This will overwrite any settings you've made via `idf.py menuconfig`
+* You will need to do a full re-build after you either make changes via `menuconfig` or by copying `sdkconfig.*` file:
+```bash
+idf.py fullclean build
+```
 
 ## Initiation
 ### First boot
@@ -195,7 +204,7 @@ Setting values are being saved by `Update` button for each corresponding unit. P
 * Connect the module to corresponding GPIO pin (if using an external module) or configure the `GPIO Pin` for corresping relay channel.
 * Use page **Status** to change the relay state, observe the relay changing its state
 * See console log output if any issues occur.
-### Contact Sensor
+### [Dry Contact Sensor](https://www.electrical4u.com/dry-contacts/)
 * Add at least one contact sensor on **Configuration** page and reboot the device
 * Note a `GPIO Pin` for the contact sensor you'd like to test OR change it to the one you plan to use
 * Connect `GND` to the mentioned above pin
