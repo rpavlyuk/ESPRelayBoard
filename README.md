@@ -63,7 +63,10 @@ To get started, you will need:
 * [ESP32-S3-DevKitM-1](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/hw-reference/esp32s3/user-guide-devkitm-1.html) + [2Ch Relay Board](https://aliexpress.com/item/1005006402415669.html)
   * Wire as shown in *Wiring* section below
   * Use `ESP32-S3` as target device.
-
+* [ElectroDragon Wifi IoT SPDT Relay Board V2](https://www.electrodragon.com/product/wifi-iot-relay-board-spdt-based-esp8266/)
+  * Assign pins to the relay channels according to [ElectroDragon specs](https://w2.electrodragon.com/Board-dat/NWI/NWI1119-DAT/NWI1119-DAT.md): `{6, 7}`
+  * You may use GPIO05 as sensor (located on the board)
+  * Use `ESP32-C3` as target device.
 
 ## Wiring
 No need to do any wiring if you're using fully built ESP32-based relay board. It's just already done so you can skip this block.
