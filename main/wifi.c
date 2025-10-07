@@ -53,8 +53,8 @@ static void wifi_provisioning_event_handler(void* arg, esp_event_base_t event_ba
         log_network_configuration(event->esp_netif);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGI(TAG, "Disconnected from Wi-Fi network, reconnecting...");
-        esp_wifi_connect();
         g_wifi_ready = false;
+        esp_wifi_connect();
     }
 }
 

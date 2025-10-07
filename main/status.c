@@ -13,6 +13,7 @@
 #include "driver/gpio.h"
 
 #include "relay.h"
+#include "mqtt.h"
 
 static heap_trace_record_t trace_buffer[NUM_RECORDS];  // Buffer to store the trace records
 
@@ -22,23 +23,43 @@ void status_task(void *pvParameters) {
         ESP_LOGI(STATUS_TAG, "=== System Status ===");
         cycle++;
 
-        // Print heap information
-        heap_caps_print_heap_info(MALLOC_CAP_DEFAULT);
+        if (_DEVICE_ENABLE_STATUS_SYSINFO_HEAP) {
+            ESP_LOGI(STATUS_TAG, "--- Heap Information ---");
+            // Print heap information
+            heap_caps_print_heap_info(MALLOC_CAP_DEFAULT);
 
-        // Print free memory
-        size_t free_heap = esp_get_free_heap_size();
-        ESP_LOGI(STATUS_TAG, "Free heap: %u bytes", free_heap);
 
-        // Print minimum free heap size (i.e., lowest value during program execution)
-        size_t min_free_heap = esp_get_minimum_free_heap_size();
-        ESP_LOGI(STATUS_TAG, "Minimum free heap size: %u bytes", min_free_heap);
+            // Print free memory
+            size_t free_heap = esp_get_free_heap_size();
+            ESP_LOGI(STATUS_TAG, "Free heap: %u bytes", free_heap);
 
-        // check HEAP integrity
-        if (!heap_caps_check_integrity_all(true)) {
-            ESP_LOGE(STATUS_TAG, "Heap corruption detected!");
+            // Print minimum free heap size (i.e., lowest value during program execution)
+            size_t min_free_heap = esp_get_minimum_free_heap_size();
+            ESP_LOGI(STATUS_TAG, "Minimum free heap size: %u bytes", min_free_heap);
         }
-        else {
-            ESP_LOGI(STATUS_TAG, "No heap corruption detected");
+
+        if (_DEVICE_ENABLE_STATUS_SYSINFO_HEAP_CHECK) {
+            ESP_LOGI(STATUS_TAG, "--- Checking heap integrity ---");
+            // Check heap integrity
+            if (!heap_caps_check_integrity_all(true)) {
+                ESP_LOGE(STATUS_TAG, "Heap corruption detected!");
+            } else {
+                ESP_LOGI(STATUS_TAG, "No heap corruption detected");
+            }
+        }
+
+        // Post system status. Function mqtt_publish_system_info() will check if MQTT is enabled and connected
+        if (_DEVICE_ENABLE_STATUS_SYSINFO_MQTT) {
+            device_status_t status;
+            if (device_status_init(&status) == ESP_OK) {
+                if (mqtt_publish_system_info(&status) != ESP_OK) {
+                    ESP_LOGE(STATUS_TAG, "Failed to publish system status to MQTT");
+                } else {
+                    ESP_LOGI(STATUS_TAG, "System status published to MQTT");
+                }
+            } else {
+                ESP_LOGE(STATUS_TAG, "Failed to initialize device status");
+            }
         }
 
         /* DISABLED -- sometimes causes crash 
@@ -51,8 +72,10 @@ void status_task(void *pvParameters) {
         }
          */
 
-        dump_all_gpio_configurations();
-
+        // Dump GPIO configurations for all safe GPIO pins
+        if (_DEVICE_ENABLE_STATUS_SYSINFO_GPIO) {
+            dump_all_gpio_configurations();
+        }
 
         // Delay for a period (e.g., 10 seconds)
         vTaskDelay(pdMS_TO_TICKS(HEAP_DUMP_INTERVAL_MS));
@@ -114,9 +137,15 @@ void status_init() {
  */
 esp_err_t device_status_init(device_status_t *status_data) {
 
+    // Dump current task information for debugging
+    dump_current_task();
+
     status_data->free_heap = esp_get_free_heap_size();
     status_data->min_free_heap = esp_get_minimum_free_heap_size();
     status_data->time_since_boot = esp_timer_get_time();
+
+    ESP_LOGD(STATUS_TAG, "Device status initialized: Free heap (%u bytes), Min free heap (%u bytes), Time since boot (%llu microseconds)", 
+             status_data->free_heap, status_data->min_free_heap, (unsigned long long)status_data->time_since_boot);
 
     return ESP_OK;
 }

@@ -92,7 +92,23 @@ void app_main(void) {
     }
 
     if (wifi_provisioned) {
-        ESP_LOGI(TAG, "WiFi is provisioned!");
+        ESP_LOGI(TAG, "WiFi is provisioned! Let's wait for Wi-Fi to be ready...");
+        
+        // Wifi is provisioned but might be ready for now. Wait until Wi-Fi is ready
+        int i = 0, c_limit = 30;
+        while(!g_wifi_ready && i < c_limit) {
+            ESP_LOGI(TAG, "Waiting for Wi-Fi/network to become ready...");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            i++;
+        }
+        // If Wi-Fi is not ready after the limit, restart the device
+        // as it makes no sense to continue without network connection
+        if (i == c_limit) {
+            ESP_LOGW(TAG, "Wi-Fi/network never became ready");
+            ESP_LOGW(TAG, "Sending ESP32 to reboot...");
+            esp_restart();
+            return;
+        }
 
         // start web
         if (_DEVICE_ENABLE_WEB) {
@@ -127,7 +143,10 @@ void app_main(void) {
             }
         }
 
+    } else {
+        ESP_LOGW(TAG, "WiFi is NOT provisioned. Provisioning process should be started and available now.");
     }
+
 
     if (_DEVICE_ENABLE_STATUS) {
         ESP_LOGI(TAG, "Status ENABLED!");

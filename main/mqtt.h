@@ -4,6 +4,7 @@
 #include "common.h"
 #include "mqtt_client.h"
 #include "relay.h"
+#include "status.h"
 
 /**
  * @brief: MQTT connection mode for the device
@@ -59,6 +60,9 @@ esp_err_t mqtt_stop(void);
 
 // publish relay to MQTT
 esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay);
+
+// publish system information to MQTT
+esp_err_t mqtt_publish_system_info(device_status_t *status);
 
 esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *mqtt_prefix, const char *homeassistant_prefix);
 void mqtt_device_config_task(void *param);
