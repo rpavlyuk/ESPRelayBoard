@@ -33,7 +33,7 @@ typedef struct {
     bool enabled;               // Enable the channel
     relay_type_t type;          // Relay type
     bool gpio_initialized;      // GPIO initialized
-    gpio_config_t *io_conf;     // GPIO IO configuration
+    gpio_config_t io_conf;     // GPIO IO configuration
 } relay_unit_t;
 
 // Event type for GPIO events
@@ -71,7 +71,7 @@ esp_err_t relay_sensor_gpio_state_refresh(relay_unit_t *relay);
 
 esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist);
 
-static void IRAM_ATTR gpio_isr_handler(void *arg);
+void gpio_isr_handler(void *arg);
 void gpio_event_task(void *arg);
 
 esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay);

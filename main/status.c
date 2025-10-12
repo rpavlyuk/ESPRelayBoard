@@ -206,11 +206,13 @@ cJSON *device_all_to_JSON(device_status_t *status) {
  * @brief: Serialize all device data (sensor, <other data>) to JSON
  */
 char *serialize_all_device_data(device_status_t *status) {
-
-    char *json = NULL;
     cJSON *c_json = device_all_to_JSON(status);
+    if (!c_json) {
+        ESP_LOGE(STATUS_TAG, "Failed to create JSON object for device data serialization");
+        return NULL;
+    }
 
-    json = cJSON_Print(c_json);
+    char *json = cJSON_PrintUnformatted(c_json);
     cJSON_Delete(c_json);
     return json;
 

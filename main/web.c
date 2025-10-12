@@ -1452,20 +1452,20 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON_AddItemToObject(response, "status", status);
 
     // Send the response
-    const char *response_str = cJSON_Print(response);
+    char *response_str = cJSON_PrintUnformatted(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, response_str, strlen(response_str));
 
     // Clean up
     cJSON_Delete(json);
     cJSON_Delete(response);
-    free(relay_json_str);
-    free((void *)response_str);
+    cJSON_free(relay_json_str);
+    cJSON_free(response_str);
     return ESP_OK;
 }
 
 /**
- * @brief Handler for /api/relay/update endpoint
+ * @brief Handler for /api/status endpoint
  *
  * @param req HTTP request
  * @return ESP_OK or ESP_FAIL
@@ -1476,7 +1476,12 @@ static esp_err_t status_data_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(device_status_init(&device_status));
     
     // Convert cJSON object to a string
-    const char *json_response = serialize_all_device_data(&device_status);
+    char *json_response = serialize_all_device_data(&device_status);
+
+    if (!json_response) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Server error: Unable to serialize device status");
+        return ESP_FAIL;
+    }
 
     
     // Set the content type to JSON and send the response
@@ -1484,13 +1489,13 @@ static esp_err_t status_data_handler(httpd_req_t *req) {
     httpd_resp_send(req, json_response, strlen(json_response));
 
     // Free allocated memory
-    free((void *)json_response);
+    cJSON_free(json_response);
 
     return ESP_OK;
 }
 
 /**
- * @brief Handler for /api/relay/update endpoint
+ * @brief Handler for /status endpoint
  *
  * @param req HTTP request
  * @return ESP_OK or ESP_FAIL
@@ -1609,7 +1614,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to parse serialized relay");
             }
-            free(serialized_relay);  // Free serialized relay string after usage
+            cJSON_free(serialized_relay);  // Free serialized relay string after usage
         } else {
             ESP_LOGE(TAG, "Failed to serialize relay unit");
         }
@@ -1635,7 +1640,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     cJSON_AddStringToObject(status, "text", "ok");
 
     // Convert the response to a JSON string
-    char *json_response = cJSON_Print(response);
+    char *json_response = cJSON_PrintUnformatted(response);
     if (json_response == NULL) {
         ESP_LOGE(TAG, "Failed to convert JSON response to string");
         cJSON_Delete(response);  // Free the response on error
@@ -1648,7 +1653,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     esp_err_t ret = httpd_resp_send(req, json_response, strlen(json_response));
 
     // Clean up
-    free(json_response);  // Free the generated JSON string
+    cJSON_free(json_response);  // Free the generated JSON string
     cJSON_Delete(response);  // Free the root JSON object
 
     return ret;

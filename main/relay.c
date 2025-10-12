@@ -117,7 +117,7 @@ relay_unit_t get_actuator_relay(int channel, int pin) {
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for actuator relay unit (%d)", relay.gpio_pin, relay.channel);
         }
     } else {
-        relay.io_conf = NULL;
+        relay.io_conf = (gpio_config_t){0};
     }
 
     ESP_LOGI(TAG, "Relay actuator initialized on channel %d, GPIO pin %d", channel, pin);
@@ -147,7 +147,7 @@ relay_unit_t get_sensor_relay(int channel, int pin) {
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for conctact sensor relay unit (%d)", relay.gpio_pin, relay.channel);
         }
     } else {
-        relay.io_conf = NULL;
+        relay.io_conf = (gpio_config_t){0};
     } 
 
     ESP_LOGI(TAG, "Contact sensor initialized on channel %d, GPIO pin %d", channel, pin);
@@ -166,23 +166,17 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Check if io_conf is already allocated and free it if necessary
-    if (relay->io_conf != NULL) {
-        ESP_LOGW(TAG, "io_conf seems to be already initialized (not NULL), potential risk of memory leak");
-        // free(relay->io_conf);
-    }
-
-    // chech gpio init flag
+    // check gpio init flag
     if (relay->gpio_initialized) {
         ESP_LOGW(TAG, "GPIO pin %d seems to be already inialized. Flag set to TRUE. Potential risk of memory leak.", relay->gpio_pin);
     }
 
-   gpio_config_t io_conf;
+    gpio_config_t io_conf = {0};
+    io_conf.pin_bit_mask = (1ULL << relay->gpio_pin);
     
     // Configure GPIO based on relay type (actuator or sensor)
     switch (relay->type) {
         case RELAY_TYPE_SENSOR:
-            io_conf.pin_bit_mask = (1ULL << relay->gpio_pin);  // Set bit mask for dynamic pin
             io_conf.mode = GPIO_MODE_INPUT;
             io_conf.pull_up_en = GPIO_PULLUP_ENABLE;     // Enable pull-up
             io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;  // Disable pull-down
@@ -190,7 +184,6 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
             break;
 
         case RELAY_TYPE_ACTUATOR:
-            io_conf.pin_bit_mask = (1ULL << relay->gpio_pin);  // Actuator uses output
             io_conf.mode = GPIO_MODE_OUTPUT;
             io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
             io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -210,7 +203,7 @@ esp_err_t relay_gpio_init(relay_unit_t *relay) {
     }
 
     // Assign io_conf to relay struct
-    relay->io_conf = &io_conf;
+    relay->io_conf = io_conf;
 
     // set flag to true
     relay->gpio_initialized = true;
@@ -231,9 +224,9 @@ esp_err_t relay_sensor_register_isr(relay_unit_t *relay) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Check if io_conf is already allocated and free it if necessary
-    if (relay->io_conf == NULL || !relay->gpio_initialized) {
-        ESP_LOGE(TAG, "io_conf (NULL) not initialized. Cannot continue.");
+    // Check if GPIO is initialized
+    if (!relay->gpio_initialized) {
+        ESP_LOGE(TAG, "io_conf not initialized. Cannot continue.");
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -259,7 +252,7 @@ esp_err_t relay_sensor_register_isr(relay_unit_t *relay) {
  *
  * @param[in] arg A pointer to the GPIO pin number that triggered the interrupt.
  */
-static void IRAM_ATTR gpio_isr_handler(void *arg) {
+void IRAM_ATTR gpio_isr_handler(void *arg) {
     int gpio_num = (int)arg;
     gpio_event_t evt;
     evt.gpio_num = gpio_num;
@@ -397,6 +390,7 @@ esp_err_t relay_sensor_gpio_state_refresh(relay_unit_t *relay) {
         ESP_LOGE(TAG, "Failed to save contact sensor state to NVS");
     }
 
+    free(relay_nvs_key);  // Free the dynamically allocated NVS key
     return ESP_OK;
 }
 
@@ -415,11 +409,6 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (relay->io_conf == NULL) {
-        ESP_LOGW(TAG, "io_conf is NULL. Nothing to de-init. Channel (%d), type (%d)", relay->channel, relay->type);
-        return ESP_OK;
-    }
-
     // Protect against non-initialized GPIO
     if (!relay->gpio_initialized) {
         ESP_LOGW(TAG, "GPIO pin %d is not initialized. Nothing to de-init. Channel (%d), type (%d)", relay->gpio_pin, relay->channel, relay->type);
@@ -427,8 +416,7 @@ esp_err_t relay_gpio_deinit(relay_unit_t *relay) {
     }
 
     // Deinitialize the GPIO pin
-    // free(relay->io_conf);
-    relay->io_conf = NULL;
+    relay->io_conf = (gpio_config_t){0};
     relay->gpio_initialized = false;
 
     ESP_LOGI(TAG, "GPIO pin %d de-initialized. Channel (%d), type (%d)", relay->gpio_pin, relay->channel, relay->type);
@@ -459,7 +447,7 @@ esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
     memcpy(relay_copy, relay, sizeof(relay_unit_t));
 
     //reset the io_conf property and the flag
-    relay_copy->io_conf = NULL;
+    relay_copy->io_conf = (gpio_config_t){0};
     relay_copy->gpio_initialized = false;
 
     // save the copy to NVS
@@ -495,7 +483,7 @@ esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay) {
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for actuator relay unit (%d)", relay->gpio_pin, relay->channel);
         }
     } else {
-        relay->io_conf = NULL;
+        relay->io_conf = (gpio_config_t){0};
     }
 
     ESP_LOGI(TAG, "Relay actuator loaded successfully from NVS under key: %s", key);
@@ -522,7 +510,7 @@ esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay) {
             ESP_LOGW(TAG, "Failed to init GPIO pin (%d) for contact sensor relay unit (%d)", relay->gpio_pin, relay->channel);
         }
     } else {
-        relay->io_conf = NULL;
+        relay->io_conf = (gpio_config_t){0};
     }
 
 
@@ -670,7 +658,7 @@ char* serialize_relay_unit(const relay_unit_t *relay) {
     cJSON_AddNumberToObject(relay_json, "type", relay->type);
 
     // Convert the JSON object to a string
-    char *json_string = cJSON_Print(relay_json);
+    char *json_string = cJSON_PrintUnformatted(relay_json);
     if (json_string == NULL) {
         ESP_LOGE(TAG, "Failed to convert relay JSON object to string");
     }
@@ -1029,7 +1017,7 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     }
 
     // Init GPIO
-    if (relay->io_conf == NULL) {
+    if (!relay->gpio_initialized) {
         if (relay_gpio_init(relay) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to init GPIO pin before setting the state. Channel (%d). ", relay->channel);
             return ESP_FAIL;
@@ -1074,6 +1062,7 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
             ESP_LOGE(TAG, "Unable to save relay unit to NVS");
             return ESP_FAIL;
         }
+        free(relay_nvs_key);
     }
 
     return ESP_OK;

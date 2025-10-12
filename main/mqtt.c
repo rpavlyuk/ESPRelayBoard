@@ -8,6 +8,8 @@
 #include "mqtt_client.h"
 #include "esp_check.h"
 
+#include "cJSON.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -554,7 +556,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
             ESP_LOGW(TAG, "Topic %s not published", topic);
             is_error = true;
         }
-        free(relay_json);
+        cJSON_free(relay_json);
     } else {
         ESP_LOGW(TAG, "Get NULL when tried serialize_relay_unit(). Relay's JSON data will not be publised to MQTT.");
         is_error = true;
@@ -739,13 +741,12 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
     }
     
     char topic[512];
-    char payload[512];
     char discovery_path[256];
     int msg_id;
     bool is_error = false;
     const char *metric = HA_DEVICE_METRIC_STATE;
     const char *device_class = HA_DEVICE_DEVICE_CLASS;
-    char *relay_key;
+    char *relay_key = NULL;
 
     relay_unit_t *relay_list = NULL;
     uint16_t total_count = 0;
@@ -791,6 +792,11 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
             ESP_LOGW(TAG, "Discovery topic %s not published", topic);
             is_error = true;
         }
+        // Free allocated resources
+        cJSON_free(discovery_json);
+        free(relay_key);
+        relay_key = NULL;
+        // memset(entity_discovery, 0, sizeof(ha_entity_discovery_t)); // reset for next use
     }
 
     // tell we are online

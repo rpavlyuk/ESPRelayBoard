@@ -637,8 +637,7 @@ cJSON *ha_entity_discovery_to_JSON(ha_entity_discovery_t *discovery) {
  */
 char* ha_entity_discovery_print_JSON(ha_entity_discovery_t *discovery) {
     cJSON *j_entity_discovery = ha_entity_discovery_to_JSON(discovery);
-    char *json = NULL;
-    json = cJSON_Print(j_entity_discovery);
+    char *json = cJSON_Print(j_entity_discovery);
     cJSON_Delete(j_entity_discovery);
     return json;
 }
