@@ -89,6 +89,8 @@
 #define S_DEFAULT_MQTT_PASSWORD     ""
 #define S_DEFAULT_MQTT_PREFIX       "relay_board"
 
+#define S_DEFAULT_MQTT_REFRESH_INTERVAL  60000   // 1 minute
+
 #define S_DEFAULT_HA_PREFIX             "homeassistant"
 #define S_DEFAULT_HA_UPDATE_INTERVAL    600000              // Update Home Assistant definitions every 10 minutes
 

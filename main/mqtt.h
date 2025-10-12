@@ -53,12 +53,6 @@ void mqtt_event_task(void *arg);
 
 esp_err_t trigger_mqtt_publish(const char *relay_key, relay_type_t relay_type);
 
-// load CA certification from the filesystem
-esp_err_t load_ca_certificate(char **ca_cert, const char *ca_cert_path);
-
-// save CA certification to the filesystem
-esp_err_t save_ca_certificate(const char *ca_cert, const char *ca_cert_path, bool create_if_not_exist);
-
 // init MQTT connection
 esp_err_t mqtt_init(void);
 

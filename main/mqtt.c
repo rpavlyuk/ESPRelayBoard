@@ -44,7 +44,9 @@ esp_mqtt_client_handle_t mqtt_client = NULL;
  */
 esp_err_t start_mqtt_queue_task(void) {
 
+    /*
     ESP_LOGI(TAG, "+ + + + Waiting for MQTT connection to become ready...");
+
 
     EventBits_t bits = xEventGroupWaitBits(
         g_sys_events,             // Event group handle
@@ -61,6 +63,7 @@ esp_err_t start_mqtt_queue_task(void) {
         ESP_LOGE(TAG, "Timeout waiting for MQTT to become ready");
         return ESP_FAIL;
     }
+    */
 
     // Create the event queue
     mqtt_event_queue = xQueueCreate(MQTT_QUEUE_LENGTH, sizeof(relay_event_t));
@@ -205,6 +208,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         xEventGroupSetBits(g_sys_events, BIT_MQTT_CONNECTED);
         xEventGroupSetBits(g_sys_events, BIT_MQTT_READY);
+        // update all relays to MQTT
+        ESP_ERROR_CHECK(relay_publish_all_to_mqtt(true));
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");

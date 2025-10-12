@@ -12,6 +12,8 @@
 #define _DEVICE_ENABLE_MQTT     (true && _DEVICE_ENABLE_WIFI)
 #define _DEVICE_ENABLE_HA       (true && _DEVICE_ENABLE_MQTT)
 
+#define _DEVICE_ENABLE_MQTT_REFRESH        (true && _DEVICE_ENABLE_MQTT)
+
 #define _DEVICE_ENABLE_STATUS                       true
 #define _DEVICE_ENABLE_STATUS_SYSINFO_MQTT          (true && _DEVICE_ENABLE_STATUS && _DEVICE_ENABLE_MQTT)
 #define _DEVICE_ENABLE_STATUS_SYSINFO_HEAP          (false && _DEVICE_ENABLE_STATUS)

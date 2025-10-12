@@ -147,6 +147,11 @@ void app_main(void) {
         // start MQTT client
         if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode) {
             ESP_LOGI(TAG, "MQTT ENABLED!");
+
+            /* Start MQTT publishing queue */
+            ESP_ERROR_CHECK(start_mqtt_queue_task());
+
+            // init MQTT connection
             if (mqtt_init() == ESP_OK) {
                 ESP_LOGI(TAG, "Connected to MQTT server!");
             } else {
@@ -154,11 +159,11 @@ void app_main(void) {
                 return;
             }
 
-            /* Start MQTT publishig queue */
-            ESP_ERROR_CHECK(start_mqtt_queue_task());
-
-            /* Do initial push of all unit states to MQTT */
-            ESP_ERROR_CHECK(relay_publish_all_to_mqtt());
+            // refresh all relays to MQTT
+            if (_DEVICE_ENABLE_MQTT_REFRESH) {
+                ESP_LOGI(TAG, "Starting periodic refresh of relay states to MQTT...");
+                xTaskCreate(refresh_relay_states_2_mqtt_task, "refresh_relay_states_2_mqtt_task", 4096, NULL, 5, NULL);
+            }
 
             // _DEVICE_ENABLE_HA
             if (_DEVICE_ENABLE_HA) {

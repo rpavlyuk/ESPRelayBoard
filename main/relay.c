@@ -1090,10 +1090,11 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
  *      - ESP_OK on success
  *      - ESP_FAIL if any step in the process fails
  */
-esp_err_t relay_publish_all_to_mqtt() {
+esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
     relay_unit_t *relay_list = NULL;
     uint16_t total_count = 0;
     esp_err_t err;
+    bool relay_subscription_error = false;
 
     // Load all relay units
     err = get_all_relay_units(&relay_list, &total_count);
@@ -1118,14 +1119,47 @@ esp_err_t relay_publish_all_to_mqtt() {
         }
 
         // subscribe relay unit to MQTT set topic
+        if (!subscribe) {
+            continue;  // Skip subscription if not requested
+        }   
         err = mqtt_relay_subscribe(&relay_list[i]);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to subscribe relay channel %d to MQTT.", relay_list[i].channel);
+            relay_subscription_error = true;
         }
+    }
+
+    if (!relay_subscription_error && subscribe) {
+        xEventGroupSetBits(g_sys_events,BIT_MQTT_RELAYS_SUBSCRIBED);
     }
 
     // Free the dynamically allocated relay_list
     free(relay_list);
 
     return ESP_OK;
+}
+
+/**
+ * @brief Task to periodically refresh relay states to MQTT.
+ * 
+ * This task runs indefinitely, delaying for a specified interval (default 1 minute)
+ * before publishing all relay states to MQTT. It logs the success or failure of each
+ * refresh operation.
+ * 
+ * @param arg Unused parameter for task function signature.
+ */
+void refresh_relay_states_2_mqtt_task(void *arg) {
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(S_DEFAULT_MQTT_REFRESH_INTERVAL)); // Delay for S_DEFAULT_MQTT_REFRESH_INTERVAL milliseconds (default 1 minute)
+
+        ESP_LOGI(TAG, "Refreshing relay states to MQTT...");
+
+        // Publish all relay states to MQTT
+        esp_err_t err = relay_publish_all_to_mqtt(false);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to refresh relay states to MQTT.");
+        } else {
+            ESP_LOGI(TAG, "Relay states successfully refreshed to MQTT.");
+        }
+    }
 }
