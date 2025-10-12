@@ -1,10 +1,22 @@
 #ifndef MQTT_H
 #define MQTT_H
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+
+#include "flags.h"
 #include "common.h"
 #include "mqtt_client.h"
 #include "relay.h"
 #include "status.h"
+
+/* Macro to check if MQTT is connected */
+#define IS_MQTT_CONNECTED() \
+    ((xEventGroupGetBits(g_sys_events) & BIT_MQTT_CONNECTED) != 0)
+
+#define IS_MQTT_READY() \
+    ((xEventGroupGetBits(g_sys_events) & (BIT_MQTT_CONNECTED | BIT_MQTT_READY)) == \
+     (BIT_MQTT_CONNECTED | BIT_MQTT_READY))
 
 /**
  * @brief: MQTT connection mode for the device
@@ -32,8 +44,6 @@ typedef struct {
 } mqtt_command_event_t;
 
 #define MQTT_QUEUE_LENGTH 10  // Number of items the queue can hold
-
-extern bool g_mqtt_ready;
 
 static void log_error_if_nonzero(const char *message, int error_code);
 

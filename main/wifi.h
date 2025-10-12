@@ -7,7 +7,6 @@
 #include "esp_event.h"
 
 extern esp_netif_t *esp_netif_sta;
-extern bool g_wifi_ready;
 
 void generate_softap_credentials();
 

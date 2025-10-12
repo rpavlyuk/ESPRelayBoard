@@ -1,3 +1,8 @@
+#include "freertos/FreeRTOS.h"   // must be first
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"      // if you use queues
+
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -8,6 +13,7 @@
 
 #include "non_volatile_storage.h"
 
+#include "flags.h"
 #include "common.h"
 #include "settings.h"
 #include "relay.h"
@@ -338,7 +344,7 @@ void gpio_event_task(void *arg) {
             // publish to MQTT
             uint16_t mqtt_connection_mode;
             ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
-            if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && g_mqtt_ready) {
+            if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
                 mqtt_publish_relay_data(&relay);
                 ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(&relay), relay.type));
             }
@@ -1047,7 +1053,8 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     // update via MQTT
     uint16_t mqtt_connection_mode;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
-    if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && g_mqtt_ready) {
+    if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
+        mqtt_publish_relay_data(relay);
        ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
     }
 

@@ -1,3 +1,8 @@
+#include "freertos/FreeRTOS.h"   // must be first
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"      // if you use queues
+
 #include <stdio.h>
 #include <string.h>
 #include "esp_system.h"
@@ -11,12 +16,12 @@
 #include "esp_event.h"
 
 #include "wifi.h"
+#include "flags.h"
 
 char softap_ssid[32];       // Buffer for the generated SSID
 char softap_password[64];   // Buffer for the generated password
 
 esp_netif_t *esp_netif_sta;
-bool g_wifi_ready = false;
 
 void generate_softap_credentials() {
     uint8_t mac[6];  // Array to hold the MAC address
@@ -49,11 +54,14 @@ static void wifi_provisioning_event_handler(void* arg, esp_event_base_t event_ba
         esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {  // Corrected event
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        g_wifi_ready = true;
+        xEventGroupSetBits(g_sys_events, BIT_WIFI_CONNECTED);
         log_network_configuration(event->esp_netif);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGI(TAG, "Disconnected from Wi-Fi network, reconnecting...");
-        g_wifi_ready = false;
+        xEventGroupClearBits(g_sys_events, BIT_WIFI_CONNECTED);
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_CONNECTED);
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_READY);
+        dump_sys_bits("WIFI_EVENT_STA_DISCONNECTED");
         esp_wifi_connect();
     }
 }

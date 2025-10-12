@@ -1,3 +1,9 @@
+
+#include "freertos/FreeRTOS.h"   // must be first
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"      // if you use queues
+
 #include <stdio.h>
 #include "esp_log.h"
 
@@ -6,6 +12,7 @@
 
 #include "non_volatile_storage.h"
 
+#include "flags.h"
 #include "main.h"
 #include "settings.h"
 #include "wifi.h"
@@ -14,12 +21,24 @@
 #include "relay.h"
 #include "mqtt.h"
 
+EventGroupHandle_t g_sys_events;
+
 /**
  * @brief Main application entry point
  */
 void app_main(void) {
 
+    /* Create the system events group */
+    g_sys_events = xEventGroupCreate();
+    if (g_sys_events == NULL) {
+        ESP_LOGE(TAG, "Failed to create system event group");
+        return; // or handle error gracefully
+    }
+
     bool wifi_provisioned = false;
+
+    /* Reset system event bits */
+    reset_system_bits();
 
     /* Logging setup */
     esp_log_level_set("*", ESP_LOG_INFO);
@@ -92,20 +111,25 @@ void app_main(void) {
     }
 
     if (wifi_provisioned) {
-        ESP_LOGI(TAG, "WiFi is provisioned! Let's wait for Wi-Fi to be ready...");
+        ESP_LOGI(TAG, "main: WiFi is provisioned! Let's wait for Wi-Fi to be ready...");
+
+        xEventGroupSetBits(g_sys_events, BIT_WIFI_PROVISIONED);
         
         // Wifi is provisioned but might be ready for now. Wait until Wi-Fi is ready
-        int i = 0, c_limit = 30;
-        while(!g_wifi_ready && i < c_limit) {
-            ESP_LOGI(TAG, "Waiting for Wi-Fi/network to become ready...");
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            i++;
-        }
-        // If Wi-Fi is not ready after the limit, restart the device
-        // as it makes no sense to continue without network connection
-        if (i == c_limit) {
-            ESP_LOGW(TAG, "Wi-Fi/network never became ready");
-            ESP_LOGW(TAG, "Sending ESP32 to reboot...");
+        EventBits_t bits = xEventGroupWaitBits(
+            g_sys_events,
+            BIT_WIFI_CONNECTED,
+            pdFALSE,                // don't clear
+            pdTRUE,
+            pdMS_TO_TICKS(30000)    // wait up to 30 seconds
+        );
+
+        if (bits & BIT_WIFI_CONNECTED) {
+            ESP_LOGI(TAG, "main: Wi-Fi/network is ready!");
+        } else {
+            ESP_LOGW(TAG, "main: Timeout waiting for Wi-Fi to connect");
+            ESP_LOGW(TAG, "main: Wi-Fi/network never became ready");
+            ESP_LOGW(TAG, "main: Sending ESP32 to reboot...");
             esp_restart();
             return;
         }

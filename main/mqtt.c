@@ -1,3 +1,8 @@
+#include "freertos/FreeRTOS.h"   // must be first
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"      // if you use queues
+
 #include <stdio.h>
 #include "esp_system.h"
 #include "esp_log.h"
@@ -10,10 +15,7 @@
 
 #include "cJSON.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-
+#include "flags.h"
 #include "mqtt.h"
 #include "settings.h"
 #include "wifi.h"
@@ -27,10 +29,6 @@ static QueueHandle_t mqtt_command_queue = NULL;
 
 /* MQTT client global variables */
 esp_mqtt_client_handle_t mqtt_client = NULL;
-bool mqtt_connected = false;
-
-/* Cross-file global MQTT readiness status */
-bool g_mqtt_ready = false;
 
 /**
  * @brief Starts the MQTT event queue task.
@@ -46,16 +44,22 @@ bool g_mqtt_ready = false;
  */
 esp_err_t start_mqtt_queue_task(void) {
 
-    // wait for MQTT to become ready
-    int attempts = 0, max_attempts = 60;
-    while(!g_mqtt_ready) {
-        ESP_LOGI(TAG, "+ + + + Waiting for MQTT connection to become ready...");
-        attempts++;
-        if (attempts > max_attempts) {
-            ESP_LOGI(TAG, "MQTT ever became ready");
-            return ESP_FAIL;
-        }
-        vTaskDelay(1000/portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "+ + + + Waiting for MQTT connection to become ready...");
+
+    EventBits_t bits = xEventGroupWaitBits(
+        g_sys_events,             // Event group handle
+        BIT_MQTT_READY,           // Bit(s) to wait for
+        pdFALSE,                  // Don’t clear bit on exit
+        pdTRUE,                   // Wait until *all* bits are set (only one here)
+        pdMS_TO_TICKS(60000)      // Timeout after 60 seconds
+    );
+
+    if (bits & BIT_MQTT_READY) {
+        ESP_LOGI(TAG, "MQTT connection is ready!");
+        // proceed with normal operation
+    } else {
+        ESP_LOGE(TAG, "Timeout waiting for MQTT to become ready");
+        return ESP_FAIL;
     }
 
     // Create the event queue
@@ -199,12 +203,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        mqtt_connected = true;  // Set flag when connected
-        g_mqtt_ready = true;    // Set flag its ready
+        xEventGroupSetBits(g_sys_events, BIT_MQTT_CONNECTED);
+        xEventGroupSetBits(g_sys_events, BIT_MQTT_READY);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
-        mqtt_connected = false;  // Reset flag when disconnected
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_CONNECTED);
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_READY);
         cleanup_mqtt();  // Ensure proper cleanup on disconnection
         break;
     case MQTT_EVENT_SUBSCRIBED:
@@ -218,6 +223,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         break;
     case MQTT_EVENT_DATA: {
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        // TODO: check the code for heap memory leaks
 
         // Log the topic and data properly using the length
         ESP_LOGI(TAG, "TOPIC=%.*s, len: %i", event->topic_len, event->topic, event->topic_len);
@@ -269,7 +275,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
             ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
         }
-        mqtt_connected = false;  // Handle connection error
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_CONNECTED | BIT_MQTT_READY);
         break;
     default:
         ESP_LOGI(TAG, "Other event id:%d", event->event_id);
@@ -297,10 +303,19 @@ esp_err_t mqtt_init(void) {
         return ESP_OK; // not an issue
     }
 
-    // wait for Wi-Fi to connect
-    while(!g_wifi_ready) {
-        ESP_LOGI(TAG, "Waiting for Wi-Fi/network to become ready...");
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    EventBits_t bits = xEventGroupWaitBits(
+        g_sys_events,
+        BIT_WIFI_CONNECTED,
+        pdFALSE,                // don't clear
+        pdTRUE,
+        pdMS_TO_TICKS(30000)    // wait up to 30 seconds
+    );
+
+    if (bits & BIT_WIFI_CONNECTED) {
+        ESP_LOGI(TAG, "Wi-Fi/network is ready!");
+    } else {
+        ESP_LOGW(TAG, "Timeout waiting for Wi-Fi to connect");
+        return ESP_FAIL;
     }
 
     // Proceed with MQTT connection
@@ -364,6 +379,25 @@ esp_err_t mqtt_init(void) {
     free(mqtt_prefix);
     free(device_id);
 
+    // 🟢 Wait up to 10 seconds for MQTT to become fully ready
+    ESP_LOGI(TAG, "Waiting for MQTT client to connect...");
+
+    bits = xEventGroupWaitBits(
+        g_sys_events,
+        BIT_MQTT_CONNECTED | BIT_MQTT_READY,  // wait for both
+        pdFALSE,                              // don’t clear bits
+        pdTRUE,                               // wait for *all* bits
+        pdMS_TO_TICKS(10000)                  // timeout 10 seconds
+    );
+
+    if ((bits & (BIT_MQTT_CONNECTED | BIT_MQTT_READY)) ==
+        (BIT_MQTT_CONNECTED | BIT_MQTT_READY)) {
+        ESP_LOGI(TAG, "MQTT is connected and ready!");
+    } else {
+        ESP_LOGE(TAG, "Timeout waiting for MQTT to connect/initialize");
+        ret = ESP_FAIL;
+    }
+
     return ret;
 }
 
@@ -389,7 +423,7 @@ esp_err_t mqtt_stop(void) {
  */
 void cleanup_mqtt() {
     if (mqtt_client) {
-        mqtt_connected = false;
+        xEventGroupClearBits(g_sys_events, BIT_MQTT_CONNECTED | BIT_MQTT_READY);
         ESP_RETURN_VOID_ON_ERROR(esp_mqtt_client_stop(mqtt_client), TAG, "Failed to stop the MQTT client");
         ESP_RETURN_VOID_ON_ERROR(esp_mqtt_client_destroy(mqtt_client), TAG, "Failed to destroy the MQTT client");  // Free the resources
         mqtt_client = NULL;
@@ -436,7 +470,8 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     }
 
     // Ensure MQTT client is initialized and connected
-    if (mqtt_client == NULL || !mqtt_connected) {
+    dump_sys_bits("mqtt_publish_relay_data: Before MQTT client check");
+    if (mqtt_client == NULL || !IS_MQTT_CONNECTED()) {
         ESP_LOGW(TAG, "MQTT client is not initialized or not connected.");
         if (mqtt_connection_mode > (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
             ESP_LOGI(TAG, "Restoring connection to MQTT...");
@@ -622,7 +657,8 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     }
 
     // Ensure MQTT client is initialized and connected
-    if (mqtt_client == NULL || !mqtt_connected) {
+    dump_sys_bits("mqtt_publish_system_info: Before MQTT client check");
+    if (mqtt_client == NULL || !IS_MQTT_CONNECTED()) {
         ESP_LOGW(TAG, "MQTT client is not initialized or not connected.");
         if (mqtt_connection_mode > (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
             ESP_LOGI(TAG, "Restoring connection to MQTT...");
@@ -729,15 +765,23 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         return ESP_OK;
     }
 
-    // wait for MQTT to connect
-    int i = 0, c_limit = 10;
-    while(!mqtt_connected) {
-        ESP_LOGI(TAG, "Waiting for MQTT connection to become ready...");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        if (++i > c_limit) {
-            ESP_LOGE(TAG, "MQTT never became ready after %i seconds", c_limit);
-            return ESP_FAIL;
-        }
+    ESP_LOGI(TAG, "mqtt-hass: Waiting for MQTT connection to become ready...");
+
+    // Wait up to 10 seconds total
+    EventBits_t bits = xEventGroupWaitBits(
+        g_sys_events,             // event group handle
+        BIT_MQTT_CONNECTED | BIT_MQTT_READY,       // bit(s) to wait for
+        pdFALSE,                  // don't clear the bit on exit
+        pdTRUE,                   // wait for all bits (only one here)
+        pdMS_TO_TICKS(10000)      // timeout 10 seconds
+    );
+
+    if ((bits & BIT_MQTT_CONNECTED) && (bits & BIT_MQTT_READY)) {
+        ESP_LOGI(TAG, "mqtt-hass: MQTT connection is ready!");
+        // Continue normal operation
+    } else {
+        ESP_LOGE(TAG, "mqtt-hass: MQTT never became ready after 10 seconds");
+        return ESP_FAIL;
     }
     
     char topic[512];
@@ -1118,8 +1162,13 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
     }
 
     // Ensure MQTT client is initialized and connected
-    if (mqtt_client == NULL || !mqtt_connected) {
-        ESP_LOGW(TAG, "MQTT client is not initialized or not connected.");
+    dump_sys_bits("mqtt_relay_subscribe: Before MQTT client check");
+    if (mqtt_client == NULL) {
+        ESP_LOGW(TAG, "MQTT client is not initialized (NULL).");
+        return ESP_FAIL;
+    }
+    if (!IS_MQTT_READY()) {
+        ESP_LOGW(TAG, "MQTT client is not marked as connected and ready.");
         if (mqtt_connection_mode > (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
             ESP_LOGI(TAG, "Restoring connection to MQTT...");
             if (mqtt_init() != ESP_OK) {

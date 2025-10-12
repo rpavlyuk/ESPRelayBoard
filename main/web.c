@@ -1,3 +1,8 @@
+#include "freertos/FreeRTOS.h"   // must be first
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"      // if you use queues
+
 #include <ctype.h>
 #include "esp_spiffs.h"  // Include for SPIFFS
 #include "esp_vfs.h"
@@ -8,6 +13,7 @@
 #include "ca_cert_manager.h"
 #include "cJSON.h"
 
+#include "flags.h"
 #include "common.h"
 #include "settings.h"
 #include "relay.h"
@@ -32,10 +38,17 @@ static httpd_handle_t server = NULL;
 void run_http_server(void *param) {
 
     // wait for Wi-Fi to connect
-    while(!g_wifi_ready) {
-        ESP_LOGI(TAG, "Waiting for Wi-Fi/network to become ready...");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    ESP_LOGI(TAG, "webserver: Waiting for Wi-Fi/network to become ready...");
+
+    xEventGroupWaitBits(
+        g_sys_events,            // event group handle
+        BIT_WIFI_CONNECTED,      // bit(s) to wait for
+        pdFALSE,                 // don’t clear the bit when unblocked
+        pdTRUE,                  // wait until *all* bits are set (only one here)
+        portMAX_DELAY            // wait forever
+    );
+
+    ESP_LOGI(TAG, "webserver: Wi-Fi/network is ready!");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
