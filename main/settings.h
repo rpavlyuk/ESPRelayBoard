@@ -126,11 +126,6 @@ typedef struct {
 } ota_update_param_t;
 
 /**
- * Initialization variables
- */
-extern int device_ready;
-
-/**
  * Routines
  */ 
 

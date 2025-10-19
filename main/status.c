@@ -1,11 +1,11 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #include "status.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_heap_trace.h"
 #include "esp_debug_helpers.h"  // For esp_backtrace_print

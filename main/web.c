@@ -252,7 +252,6 @@ void assign_static_page_variables(char *html_output) {
 void replace_placeholder(char *html_output, const char *placeholder, const char *value) {
     char *pos;
     while ((pos = strstr(html_output, placeholder)) != NULL) {
-        size_t len_before = pos - html_output;
         size_t len_placeholder = strlen(placeholder);
         size_t len_value = strlen(value);
         size_t len_after = strlen(pos + len_placeholder);

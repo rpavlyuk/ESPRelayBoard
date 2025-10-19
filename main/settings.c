@@ -1,9 +1,9 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_random.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #include "esp_spiffs.h"  // Include for SPIFFS
 #include "esp_vfs.h"
@@ -18,12 +18,11 @@
 #include "esp_wifi.h"
 
 #include "settings.h"
+#include "flags.h"
 #include "non_volatile_storage.h"
 #include "ca_cert_manager.h"
 #include "relay.h"
 #include "web.h"
-
-int device_ready = 0;
 
 #define BUFFSIZE 1024
 static char ota_write_data[BUFFSIZE + 1] = { 0 };
@@ -195,6 +194,7 @@ esp_err_t base_settings_init() {
     char *device_id = NULL;
     if (nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id) == ESP_OK) {
         ESP_LOGI(TAG, "Found parameter %s in NVS: %s", S_KEY_DEVICE_ID, device_id);
+        is_dynamically_allocated = true;
     } else {
         ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_DEVICE_ID);
 
@@ -212,12 +212,16 @@ esp_err_t base_settings_init() {
             return ESP_FAIL;
         }
     }
-    // free(device_id); // for string (char*) params only
+    if (is_dynamically_allocated) {
+        free(device_id); // for string (char*) params only
+        is_dynamically_allocated = false;
+    }   
 
     // Parameter: Device Serial (to be used for API)
     char *device_serial = NULL;
     if (nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial) == ESP_OK) {
         ESP_LOGI(TAG, "Found parameter %s in NVS: %s", S_KEY_DEVICE_SERIAL, device_serial);
+        is_dynamically_allocated = true;
     } else {
         ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_DEVICE_SERIAL);
         char new_device_serial[DEVICE_SERIAL_LENGTH+1];
@@ -229,6 +233,10 @@ esp_err_t base_settings_init() {
             return ESP_FAIL;
         }
     }
+    if (is_dynamically_allocated) {
+        free(device_serial); // for string (char*) params only
+        is_dynamically_allocated = false;
+    }   
 
     // Parameter: Update Home Assistant definitions every X minutes
     uint32_t ha_upd_intervl;
@@ -261,7 +269,7 @@ esp_err_t base_settings_init() {
         }
     }
     if (is_dynamically_allocated) {
-        free(ha_prefix); // for string (char*) params only
+        free(ota_update_url); // for string (char*) params only
         is_dynamically_allocated = false;
     }
     
@@ -335,6 +343,7 @@ esp_err_t device_settings_init() {
         char *relay_nvs_key = get_relay_nvs_key(i_channel);
         if (relay_nvs_key == NULL) {
             ESP_LOGE(TAG, "Failed to get NVS key for channel %d", i_channel);
+            free(relay);
             return ESP_FAIL; // Handle error accordingly
         }
         if(load_relay_actuator_from_nvs(relay_nvs_key, relay) == ESP_OK) {
@@ -350,6 +359,8 @@ esp_err_t device_settings_init() {
             int gpio_pin = get_next_available_safe_gpio_pin();
             if (gpio_pin < 0) {
                 ESP_LOGE(TAG, "No safe GPIO pins left! Cannot assign one to the relay unit. Aborting!");
+                free(relay_nvs_key);
+                free(relay);
                 return ESP_FAIL;
             }
             *relay = get_actuator_relay(i_channel, gpio_pin);
@@ -394,6 +405,7 @@ esp_err_t device_settings_init() {
         char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
         if (relay_nvs_key == NULL) {
             ESP_LOGE(TAG, "Failed to get NVS key for channel %d", i_channel);
+            free(relay);
             return ESP_FAIL; // Handle error accordingly
         }
         if(load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
@@ -409,6 +421,8 @@ esp_err_t device_settings_init() {
             int gpio_pin = get_next_available_safe_gpio_pin();
             if (gpio_pin < 0) {
                 ESP_LOGE(TAG, "No safe GPIO pins left! Cannot assign one to the relay unit. Aborting!");
+                free(relay_nvs_key);
+                free(relay);
                 return ESP_FAIL;
             }
             *relay = get_sensor_relay(i_channel, gpio_pin);
@@ -442,7 +456,7 @@ esp_err_t device_settings_init() {
 esp_err_t settings_init() {
 
     // reset device readiness
-    device_ready = 0;
+    xEventGroupClearBits(g_sys_events, BIT_DEVICE_READY);
 
     // call for basic platform settings (serial, ID, MQTT, HA, etc)
     if (base_settings_init() != ESP_OK) {
@@ -457,7 +471,7 @@ esp_err_t settings_init() {
     }
 
     // device ready
-    device_ready = 1;
+    xEventGroupSetBits(g_sys_events, BIT_DEVICE_READY);
     return ESP_OK;
 }
 
@@ -665,6 +679,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        free(ca_cert);
         esp_http_client_cleanup(client);
         return err;
     } else {
@@ -674,6 +689,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
     int status_code = esp_http_client_fetch_headers(client);
     if (status_code < 0) {
         ESP_LOGE(TAG, "Failed to fetch HTTP headers: %s", esp_err_to_name(status_code));
+        free(ca_cert);
         esp_http_client_cleanup(client);
         return ESP_FAIL;
     } else {
@@ -693,6 +709,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
     err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        free(ca_cert);
         esp_http_client_cleanup(client);
         return err;
     } else {
@@ -703,6 +720,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
     err = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to erase SPIFFS partition: %s", esp_err_to_name(err));
+        free(ca_cert);
         esp_http_client_cleanup(client);
         return err;
     } else {
@@ -720,6 +738,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
             data_read = esp_http_client_read(client, ota_write_data, BUFFSIZE);
             if (data_read < 0) {
                 ESP_LOGE(TAG, "Error: SSL data read error");
+                free(ca_cert);
                 http_cleanup(client);
                 return ESP_FAIL;
             } else if (data_read > 0) {
@@ -728,6 +747,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
                 
                 if (err != ESP_OK) {
                     http_cleanup(client);
+                    free(ca_cert);
                     return ESP_FAIL;
                 } else {
                     printf(".");
@@ -754,6 +774,7 @@ esp_err_t download_and_update_spiffs_partition(const char *url) {
 
     // Cleanup
     http_cleanup(client);
+    free(ca_cert);
     return err;
 }
 
