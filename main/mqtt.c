@@ -134,7 +134,7 @@ void mqtt_event_task(void *arg) {
             }
 
             // Free the dynamically allocated relay_key
-            free(event.relay_key);
+            free((void *)event.relay_key);
         }
     }
 }
@@ -157,7 +157,7 @@ void mqtt_event_task(void *arg) {
 esp_err_t  trigger_mqtt_publish(const char *relay_key, relay_type_t relay_type) {
     relay_event_t event;
 
-    event.relay_key = relay_key;
+    event.relay_key = strdup(relay_key);  // Duplicate the key to ensure it remains valid
     event.relay_type = relay_type;
 
     ESP_LOGI(TAG, "trigger_mqtt_publish: +-> Pushing MQTT publish event to the queue. Key (%s), type(%d)", event.relay_key, (int)event.relay_type);
@@ -260,6 +260,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         command_event.relay_key = resolve_key_from_topic(topic_buf);  // Use the topic buffer
         if (command_event.relay_key == NULL) {
             ESP_LOGE(TAG, "Failed to resolve relay key from topic %s (NULL)", topic_buf);
+            free(topic_buf);  // Ensure any allocated memory is freed
+            free(data_buf);
             break;  // Handle the error
         }
 
@@ -270,6 +272,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         if (xQueueSend(mqtt_command_queue, &command_event, portMAX_DELAY) != pdPASS) {
             ESP_LOGE(TAG, "Failed to send MQTT command event to the queue");
         }
+        free(topic_buf);  // Free allocated memory
+        free(data_buf);
         break;
     }
     case MQTT_EVENT_ERROR:
@@ -812,7 +816,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         return ESP_OK;
     }
 
-    ha_entity_discovery_t *entity_discovery = (ha_entity_discovery_t *)malloc(sizeof(ha_entity_discovery_t));
+    ha_entity_discovery_t *entity_discovery = NULL;
     char *discovery_json;
 
     // Iterate through each relay and publish to MQTT
@@ -823,38 +827,58 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
             ESP_LOGE(TAG, "Failed to get NVS key for relay channel %d.", relay_list[i].channel);
             continue;  // Move to the next relay if key generation fails
         }
+        // Initialize entity discovery structure
+        entity_discovery = (ha_entity_discovery_t *)malloc(sizeof(ha_entity_discovery_t));
+        if (entity_discovery == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for entity discovery object. Relay key: %s", relay_key);
+            is_error = true;
+            continue;  // Move to the next relay if allocation fails
+        }
 
+        // Fill in HomeAssistant entity discovery structure for the relay
         if (ha_entity_discovery_fullfill(entity_discovery, device_class, relay_key, metric,relay_list[i].type) != ESP_OK) {
             ESP_LOGE(TAG, "Unable to initiate entity discovery for %s", metric);
+            free(entity_discovery);
             return ESP_FAIL;
         }
 
+        // Serialize HomeAssistant discovery structure to JSON
         discovery_json = ha_entity_discovery_print_JSON(entity_discovery);
         ESP_LOGI(TAG, "Device discovery serialized:\n%s", discovery_json);
 
+        // Construct discovery topic and publish to MQTT
         memset(discovery_path, 0, sizeof(discovery_path));
         sprintf(discovery_path, "%s/%s", homeassistant_prefix, HA_DEVICE_FAMILY);
         sprintf(topic, "%s/%s_%s/%s/%s", discovery_path, device_id, relay_key, HA_DEVICE_FAMILY, HA_DEVICE_CONFIG_PATH);
-
         msg_id = esp_mqtt_client_publish(mqtt_client, topic, discovery_json, 0, 1, 1);
         if (msg_id < 0) {
             ESP_LOGW(TAG, "Discovery topic %s not published", topic);
             is_error = true;
         }
+
+        // Publish availability as "online"
+        msg_id = esp_mqtt_client_publish(
+            mqtt_client,
+            entity_discovery->availability->topic,
+            ha_availability_entry_print_JSON("online"),
+            0, 0, true);
+
+        if (msg_id < 0) {
+            ESP_LOGW(TAG, "Availability topic %s not published",
+                    entity_discovery->availability->topic);
+            is_error = true;
+        }
+
         // Free allocated resources
         cJSON_free(discovery_json);
         free(relay_key);
         relay_key = NULL;
+        ha_entity_discovery_free(entity_discovery);
+        free(entity_discovery);
+        entity_discovery = NULL;
         // memset(entity_discovery, 0, sizeof(ha_entity_discovery_t)); // reset for next use
-    }
 
-    // tell we are online
-    msg_id = esp_mqtt_client_publish(mqtt_client, entity_discovery->availability->topic, ha_availability_entry_print_JSON("online"), 0, 0, true);
-    if (msg_id < 0) {
-        ESP_LOGW(TAG, "Discovery topic %s not published", topic);
-        is_error = true;
     }
-    ha_entity_discovery_free(entity_discovery);
 
     // free relays list
     ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
@@ -997,32 +1021,55 @@ char *resolve_key_from_topic(const char *topic) {
  *         for freeing the returned string.
  */
 char *get_element_from_path(const char *path, int index) {
-    if (path == NULL || index < 0) {
+    if (!path || index < 0) {
         ESP_LOGE(TAG, "Invalid input: path is NULL or index is negative.");
         return NULL;
     }
 
-    // Split the path into tokens
-    size_t count = 0;
-    char *path_copy = strdup(path);  // Copy the path since strtok modifies it
-    char **tokens = str_split(path_copy, '/', &count);
-
-    // Check if index is out of bounds
-    if (index >= (int)count) {
-        ESP_LOGE(TAG, "Index out of bounds: count(%i), index(%i)", count, index);
-        free(path_copy);  // Free the duplicated path
-        free(tokens);     // Free the tokens array
+    // Duplicate path (for strtok-like splitters that modify buffer)
+    char *path_copy = strdup(path);
+    if (!path_copy) {
+        ESP_LOGE(TAG, "strdup(path) failed");
         return NULL;
     }
 
-    // Allocate memory for the selected element and return it
+    size_t count = 0;
+    char **tokens = str_split(path_copy, '/', &count);
+    if (!tokens) {
+        ESP_LOGE(TAG, "str_split() failed");
+        free(path_copy);
+        return NULL;
+    }
+
+    if ((size_t)index >= count) {
+        ESP_LOGE(TAG, "Index out of bounds: count(%zu), index(%d)", count, index);
+        free(tokens);
+        free(path_copy);
+        return NULL;
+    }
+
+    // Some splitters may return NULLs for empty segments — guard it
+    if (!tokens[index] || tokens[index][0] == '\0') {
+        ESP_LOGE(TAG, "Selected token is NULL/empty at index %d", index);
+        free(tokens);
+        free(path_copy);
+        return NULL;
+    }
+
+    // Duplicate the token BEFORE freeing path_copy (tokens likely point into it)
     char *result = strdup(tokens[index]);
+    if (!result) {
+        ESP_LOGE(TAG, "strdup(token) failed");
+        free(tokens);
+        free(path_copy);
+        return NULL;
+    }
 
-    // Free the allocated memory used by tokens
+    // Free the temporary allocations
+    free(tokens);     // ok if tokens[] point into path_copy
     free(path_copy);
-    free(tokens);  // Free the tokens array itself
 
-    return result;  // Caller is responsible for freeing this
+    return result;    // caller frees
 }
 
 
@@ -1119,7 +1166,7 @@ void mqtt_subscribe_relays_task(void *arg) {
             if (load_relay_actuator_from_nvs(event.relay_key, relay) == ESP_OK) {
                 relay_set_state(relay, event.state, true);  // Update the relay state
             }
-            free(event.relay_key);  // Free the allocated key
+            free((void *)event.relay_key);  // Free the allocated key
             if (INIT_RELAY_ON_LOAD) {
                 relay_gpio_deinit(relay);
             }

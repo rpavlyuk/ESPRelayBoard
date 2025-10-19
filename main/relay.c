@@ -862,6 +862,7 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
     // If there are no relays or sensors, return success without allocating memory
     if (*total_count == 0) {
         *relay_list = NULL;  // No relays or sensors, so no allocation needed
+        // No need to free anything as both lists are NULL
         return ESP_OK;
     }
 
@@ -869,15 +870,19 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
     *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*total_count));
     if (*relay_list == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for combined relay list");
-        if (INIT_RELAY_ON_LOAD) {
-            ESP_ERROR_CHECK(free_relays_array(actuators, actuator_count));
-        } else {
-            free(actuators);
+        if (actuator_count > 0) {
+            if (INIT_RELAY_ON_LOAD) {
+                ESP_ERROR_CHECK(free_relays_array(actuators, actuator_count));
+            } else {
+                free(actuators);
+            }
         }
-        if (INIT_SENSORS_ON_LOAD) {
-            ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
-        } else {
-            free(sensors);
+        if (sensor_count > 0) {
+            if (INIT_SENSORS_ON_LOAD) {
+                ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
+            } else {
+                free(sensors);
+            }
         }
         return ESP_ERR_NO_MEM;
     }
@@ -917,7 +922,7 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
  */
 esp_err_t free_relays_array(relay_unit_t *relay_list, size_t count) {
     if (relay_list == NULL || count < 1) {
-        ESP_LOGE(TAG, "relay_list is NULL or array size is zero, nothing to free");
+        ESP_LOGW(TAG, "relay_list is NULL or array size is zero, nothing to free");
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1103,10 +1108,11 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
         return err;
     }
 
+    char *relay_key = NULL;
     // Iterate through each relay and publish to MQTT
     for (uint16_t i = 0; i < total_count; i++) {
         // Get the NVS key for the relay
-        char *relay_key = get_unit_nvs_key(&relay_list[i]);
+        relay_key = get_unit_nvs_key(&relay_list[i]);
         if (relay_key == NULL) {
             ESP_LOGE(TAG, "Failed to get NVS key for relay channel %d.", relay_list[i].channel);
             continue;  // Move to the next relay if key generation fails
@@ -1120,6 +1126,7 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
 
         // subscribe relay unit to MQTT set topic
         if (!subscribe) {
+            free(relay_key);
             continue;  // Skip subscription if not requested
         }   
         err = mqtt_relay_subscribe(&relay_list[i]);
@@ -1127,6 +1134,7 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
             ESP_LOGE(TAG, "Failed to subscribe relay channel %d to MQTT.", relay_list[i].channel);
             relay_subscription_error = true;
         }
+        free(relay_key);
     }
 
     if (!relay_subscription_error && subscribe) {
