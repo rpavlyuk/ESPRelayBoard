@@ -65,7 +65,27 @@
             <tr><td>Channels count (actuators):</td><td><input type="number" step="1" name="relay_ch_count" value="{VAL_RELAY_CHANNEL_COUNT}" min="{MIN_RELAY_CHANNEL_COUNT}" max="{MAX_RELAY_CHANNEL_COUNT}"> ({MIN_RELAY_CHANNEL_COUNT} - {MAX_RELAY_CHANNEL_COUNT}) <i>Reboot required</i></td></tr>
             <tr><td>Contact sensors count:</td><td><input type="number" step="1" name="relay_sn_count" value="{VAL_CONTACT_SENSORS_COUNT}" min="{MIN_CONTACT_SENSORS_COUNT}" max="{MAX_CONTACT_SENSORS_COUNT}"> ({MIN_CONTACT_SENSORS_COUNT} - {MAX_CONTACT_SENSORS_COUNT}) <i>Reboot required</i></td></tr>
             <tr><td>Refresh interval (ms):</td><td><input type="number" step="1" name="relay_refr_int" value="{VAL_RELAY_REFRESH_INTERVAL}" min="{MIN_RELAY_REFRESH_INTERVAL}" max="{MAX_RELAY_REFRESH_INTERVAL}"> ({MIN_RELAY_REFRESH_INTERVAL} - {MAX_RELAY_REFRESH_INTERVAL})</td></tr>
-        </table>
+            <tr><td><b>Network Logging</b></td><td></td></tr>
+            <tr><td>Logging Type:</td><td>
+                <select name="net_log_type" id="net_log_type">
+                  <option value="0">Disabled</option>
+                  <option value="1">UDP</option>
+                  <option value="2">TCP</option>
+                  <option value="3">MQTT</option>
+                </select>
+            </td></tr>
+            <tr><td>Logging Host (for TCP/UDP) or Topic (for MQTT):</td><td><input type="text" name="net_log_host" value="{VAL_NET_LOGGING_HOST}" size="32" maxlength="{LEN_NET_LOGGING_HOST}"></td></tr>
+            <tr><td>Logging Port (for TCP/UDP):</td><td><input type="number" step="1" name="net_log_port" value="{VAL_NET_LOGGING_PORT}" min="1" max="65535"></td></tr>
+            <tr><td>
+                <label for="net_log_stdout">Keep Stdout Logging:</label>
+              </td>
+              <td>
+                <select name="net_log_stdout" id="net_log_stdout">
+                  <option value="0">Disabled</option>
+                  <option value="1">Enabled</option>
+                </select> <i>Recommended to keep <b>Enabled</b> for debugging purposes</i>
+            </td></tr>
+          </table>
         <input type="submit" value="Save Settings">
         <input type="reset" value="Reset Changes">
     </form>
@@ -223,6 +243,8 @@
       }
 
       selectElement('mqtt_connect', '{VAL_MQTT_CONNECT}');
+      selectElement('net_log_type', '{VAL_NET_LOGGING_TYPE}');
+      selectElement('net_log_stdout', '{VAL_NET_LOGGING_KEEP_STDOUT}');
     </script>
 </body>
 </html>

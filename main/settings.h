@@ -5,6 +5,7 @@
 #include "common.h"
 #include "mqtt.h"
 
+#include "net_logging.h"
 
 /**
  * General variable settings
@@ -19,6 +20,7 @@
 #define HA_PREFIX_LENGTH         128
 #define CA_CERT_TYPE_LENGTH      6
 #define CA_CERT_LENGTH           8192
+#define NET_LOGGING_HOST_LENGTH   256
 
 #define HA_UPDATE_INTERVAL_MIN  60000           // Once a minute
 #define HA_UPDATE_INTERVAL_MAX  86400000        // Once a day (24 hr)
@@ -75,6 +77,11 @@
 
 #define S_KEY_OTA_UPDATE_URL            "ota_update_url"
 
+#define S_KEY_NET_LOGGING_TYPE     "net_log_type"
+#define S_KEY_NET_LOGGING_HOST     "net_log_host"
+#define S_KEY_NET_LOGGING_PORT     "net_log_port"
+#define S_KEY_NET_LOGGING_KEEP_STDOUT "net_log_stdout"
+
 /**
  * Settings default values
  */
@@ -95,6 +102,11 @@
 #define S_DEFAULT_HA_UPDATE_INTERVAL    600000              // Update Home Assistant definitions every 10 minutes
 
 #define S_DEFAULT_RELAY_GPIO_PIN                 4  /* Must be within SAFE_GPIO_PINS[] (relay.c) list*/
+
+#define S_DEFAULT_NET_LOGGING_TYPE          0       // 0 - Disabled, 1 - UDP, 2 - TCP, 3 - MQTT
+#define S_DEFAULT_NET_LOGGING_HOST          "127.0.0.1" // will be used as host for UDP/TCP and as MQTT topic for MQTT logging
+#define S_DEFAULT_NET_LOGGING_PORT          514
+#define S_DEFAULT_NET_LOGGING_KEEP_STDOUT   1       // 0 - disable stdout logging, 1 - enable stdout logging
 
 #define S_DEFAULT_CHANNEL_COUNT                  2
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
@@ -211,5 +223,10 @@ esp_err_t system_reboot();
  * @brief: Task to reboot the device in async mode
  */
 void system_reboot_task(void *param);
+
+/**
+ * @brief: Setup network logging
+ */
+esp_err_t setup_remote_logging(void);
 
 #endif

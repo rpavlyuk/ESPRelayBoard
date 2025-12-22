@@ -236,6 +236,9 @@ void assign_static_page_variables(char *html_output) {
     replace_placeholder(html_output, "{VAL_CA_CERT_LEN_MAX}", f_len);
 
     replace_placeholder(html_output, "{VAL_SW_VERSION}", DEVICE_SW_VERSION);
+
+    snprintf(f_len, sizeof(f_len), "%i", NET_LOGGING_HOST_LENGTH);
+    replace_placeholder(html_output, "{LEN_NET_LOGGING_HOST}", f_len);
 }
 
 /**
@@ -389,8 +392,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     const char* message = "";
 
     // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+    char *html_template = (char *)malloc(MAX_LARGE_TEMPLATE_SIZE);
+    char *html_output = (char *)malloc(MAX_LARGE_TEMPLATE_SIZE);
 
     if (html_template == NULL || html_output == NULL) {
         ESP_LOGE(TAG, "Memory allocation failed");
@@ -428,9 +431,14 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *device_id = NULL;
     char *device_serial = NULL;
     char *ota_update_url = NULL;
+    char *net_log_host = NULL;
 
     uint16_t mqtt_connect;
     uint16_t mqtt_port;
+
+    uint16_t net_log_type;
+    uint16_t net_log_port;
+    uint16_t net_log_stdout;
 
     uint32_t ha_upd_intervl;
 
@@ -454,6 +462,10 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_TYPE, &net_log_type));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_NET_LOGGING_HOST, &net_log_host));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_PORT, &net_log_port));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_KEEP_STDOUT, &net_log_stdout));
 
     // Load MQTTS CA certificate
     char *ca_cert_mqtts = NULL;
@@ -485,6 +497,9 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char mqtt_connect_str[10];
     char relay_ch_count_str[10];
     char relay_sn_count_str[10];
+    char net_log_type_str[6];
+    char net_log_port_str[6];
+    char net_log_stdout_str[6];
 
     snprintf(mqtt_port_str, sizeof(mqtt_port_str), "%u", mqtt_port);
     snprintf(ha_upd_intervl_str, sizeof(ha_upd_intervl_str), "%li", (uint32_t) ha_upd_intervl);
@@ -492,6 +507,9 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     snprintf(relay_refr_int_str, sizeof(relay_refr_int_str), "%i", (uint16_t) relay_refr_int);
     snprintf(relay_ch_count_str, sizeof(relay_ch_count_str), "%i", (uint16_t) relay_ch_count);
     snprintf(relay_sn_count_str, sizeof(relay_sn_count_str), "%i", (uint16_t) relay_sn_count);
+    snprintf(net_log_type_str, sizeof(net_log_type_str), "%i", (uint16_t) net_log_type);
+    snprintf(net_log_port_str, sizeof(net_log_port_str), "%i", (uint16_t) net_log_port);
+    snprintf(net_log_stdout_str, sizeof(net_log_stdout_str), "%i", (uint16_t) net_log_stdout);
 
     replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
     replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
@@ -511,6 +529,10 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
     replace_placeholder(html_output, "{VAL_OTA_UPDATE_URL}", ota_update_url);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_TYPE}", net_log_type_str);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_HOST}", net_log_host);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_PORT}", net_log_port_str);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_KEEP_STDOUT}", net_log_stdout_str);
 
     // replace static fields
     assign_static_page_variables(html_output);
@@ -534,6 +556,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     free(ca_cert_mqtts);
     free(ca_cert_https);
     free(ota_update_url);
+    free(net_log_host);
 
     return ESP_OK;
 }
@@ -609,6 +632,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     char *mqtt_prefix = (char *)malloc(MQTT_PREFIX_LENGTH);
     char *ha_prefix = (char *)malloc(HA_PREFIX_LENGTH);
     char *ota_update_url = (char *)malloc(OTA_UPDATE_URL_LENGTH);
+    char *net_log_host = (char *)malloc(NET_LOGGING_HOST_LENGTH);
 
     char mqtt_port_str[6];
     char ha_upd_intervl_str[10];
@@ -616,6 +640,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     char relay_ch_count_str[10];
     char relay_sn_count_str[10];
     char relay_refr_int_str[10];
+    char net_log_type_str[6];
+    char net_log_port_str[6];
+    char net_log_stdout_str[6];  
+
 
     // Extract parameters from the buffer
     extract_param_value(buf, "mqtt_server=", mqtt_server, MQTT_SERVER_LENGTH);
@@ -631,7 +659,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     extract_param_value(buf, "relay_sn_count=", relay_sn_count_str, sizeof(relay_sn_count_str));
     extract_param_value(buf, "relay_refr_int=", relay_refr_int_str, sizeof(relay_refr_int_str));
     extract_param_value(buf, "ota_update_url=", ota_update_url, OTA_UPDATE_URL_LENGTH);
-
+    extract_param_value(buf, "net_log_host=", net_log_host, NET_LOGGING_HOST_LENGTH);
+    extract_param_value(buf, "net_log_type=", net_log_type_str, sizeof(net_log_type_str));
+    extract_param_value(buf, "net_log_port=", net_log_port_str, sizeof(net_log_port_str));
+    extract_param_value(buf, "net_log_stdout=", net_log_stdout_str, sizeof(net_log_stdout_str));
 
 
     // Convert mqtt_port and sensor_offset to their respective types
@@ -641,7 +672,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
 
     uint16_t relay_refr_int = (uint16_t)atoi(relay_refr_int_str);
     uint16_t relay_ch_count = (uint16_t)atoi(relay_ch_count_str);
-    uint16_t relay_sn_count = (uint16_t)atoi(relay_sn_count_str); 
+    uint16_t relay_sn_count = (uint16_t)atoi(relay_sn_count_str);
+    uint16_t net_log_type = (uint16_t)atoi(net_log_type_str);
+    uint16_t net_log_port = (uint16_t)atoi(net_log_port_str);
+    uint16_t net_log_stdout = (uint16_t)atoi(net_log_stdout_str);
 
     // Decode potentially URL-encoded parameters
     url_decode(mqtt_server);
@@ -651,6 +685,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     url_decode(mqtt_prefix);
     url_decode(ha_prefix);
     url_decode(ota_update_url);
+    url_decode(net_log_host);
 
     // dump parameters for debugging pursposes
     ESP_LOGI(TAG, "Received configuration parameters:");
@@ -667,6 +702,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "relay_ch_count: %i", relay_ch_count);
     ESP_LOGI(TAG, "relay_sn_count: %i", relay_sn_count);
     ESP_LOGI(TAG, "ota_update_url: %s", ota_update_url);
+    ESP_LOGI(TAG, "net_log_type: %i", net_log_type);
+    ESP_LOGI(TAG, "net_log_host: %s", net_log_host);
+    ESP_LOGI(TAG, "net_log_port: %i", net_log_port);
+    ESP_LOGI(TAG, "net_log_stdout: %i", net_log_stdout);
 
 
     // Save parsed values to NVS or apply them directly
@@ -683,6 +722,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, relay_ch_count));
     ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, relay_sn_count));
     ESP_ERROR_CHECK(nvs_write_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, ota_update_url));
+    ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_TYPE, net_log_type));
+    ESP_ERROR_CHECK(nvs_write_string(S_NAMESPACE, S_KEY_NET_LOGGING_HOST, net_log_host));
+    ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_PORT, net_log_port));
+    ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_KEEP_STDOUT, net_log_stdout));
 
 
     /** Load and display settings */
@@ -695,6 +738,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     free(mqtt_prefix);
     free(ha_prefix);
     free(ota_update_url);
+    free(net_log_host);
 
     // declaring NULL pointers for neccessary variables
     char *device_id = NULL;
@@ -708,6 +752,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     mqtt_prefix = NULL;
     ha_prefix = NULL;
     ota_update_url = NULL;
+    net_log_host = NULL;
 
     // Load settings from NVS (use default values if not set)
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_SERVER, &mqtt_server));
@@ -725,6 +770,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CONTACT_SENSORS_COUNT, &relay_sn_count));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_OTA_UPDATE_URL, &ota_update_url));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_TYPE, &net_log_type));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_NET_LOGGING_HOST, &net_log_host));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_PORT, &net_log_port));
+    ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_KEEP_STDOUT, &net_log_stdout));
 
     // Load MQTTS CA certificate
     char *ca_cert_mqtts = NULL;
@@ -756,6 +805,9 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     snprintf(relay_refr_int_str, sizeof(relay_refr_int_str), "%i", (uint16_t) relay_refr_int);
     snprintf(relay_ch_count_str, sizeof(relay_ch_count_str), "%i", (uint16_t) relay_ch_count);
     snprintf(relay_sn_count_str, sizeof(relay_sn_count_str), "%i", (uint16_t) relay_sn_count);
+    snprintf(net_log_type_str, sizeof(net_log_type_str), "%i", (uint16_t) net_log_type);
+    snprintf(net_log_port_str, sizeof(net_log_port_str), "%i", (uint16_t) net_log_port);
+    snprintf(net_log_stdout_str, sizeof(net_log_stdout_str), "%i", (uint16_t) net_log_stdout);
 
 
     // ESP_LOGI(TAG, "Current HTML output size: %i, MAX_TEMPLATE_SIZE: %i", sizeof(html_output), MAX_TEMPLATE_SIZE);
@@ -778,6 +830,10 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
     replace_placeholder(html_output, "{VAL_OTA_UPDATE_URL}", ota_update_url);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_TYPE}", net_log_type_str);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_HOST}", net_log_host);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_PORT}", net_log_port_str);
+    replace_placeholder(html_output, "{VAL_NET_LOGGING_KEEP_STDOUT}", net_log_stdout_str);
 
     // replace static fields
     assign_static_page_variables(html_output);
@@ -802,6 +858,7 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     free(ca_cert_mqtts);
     free(ca_cert_https);
     free(ota_update_url);
+    free(net_log_host);
 
     return ESP_OK;
 }
@@ -1011,11 +1068,30 @@ static esp_err_t reboot_handler(httpd_req_t *req) {
 static esp_err_t relays_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing relays web request");
 
-    // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *relays_list_html = (char *)malloc(MAX_TEMPLATE_SIZE); // to hold the relays list
-    relays_list_html[0] = '\0';  // Initialize with empty string
+    // Prefer one big allocation to reduce fragmentation
+    const size_t buf_size = MAX_TEMPLATE_SIZE;
+    const size_t total = buf_size * 3;
+
+    char *mem = (char *)malloc(total);
+    if (!mem) {
+        ESP_LOGE(TAG, "OOM: relays handler needs %u bytes (free=%u, min_free=%u)",
+                 (unsigned)total,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size());
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "Out of memory");
+        return ESP_FAIL;
+    }
+
+    // Split memory into 3 regions
+    char *html_template    = mem;
+    char *html_output      = mem + buf_size;
+    char *relays_list_html = mem + 2 * buf_size;
+
+    html_template[0] = '\0';
+    html_output[0] = '\0';
+    relays_list_html[0] = '\0';
+
     char safe_pins[128];       // Buffer to hold the safe GPIO pins list
     // Populate the safe GPIO pins as a comma-separated list
     populate_safe_gpio_pins(safe_pins, sizeof(safe_pins));
@@ -1026,9 +1102,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     if (html_template == NULL || html_output == NULL || relay_table_header == NULL || relay_table_entry_tpl == NULL || relay_table_entry == NULL) {
         ESP_LOGE(TAG, "Memory allocation failed");
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        if (relays_list_html) free(relays_list_html);
+        if (mem) free(mem);
         if (relay_table_header) free(relay_table_header);
         if (relay_table_entry_tpl) free(relay_table_entry_tpl);
         if (relay_table_entry) free(relay_table_entry);
@@ -1040,8 +1114,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     FILE *f = fopen("/spiffs/relays.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays template file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
         free(relay_table_header);
         free(relay_table_entry_tpl);
         free(relay_table_entry);
@@ -1059,8 +1132,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     f = fopen("/spiffs/relay_table_header.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays table header template file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
         free(relay_table_header);
         free(relay_table_entry_tpl);
         free(relay_table_entry);
@@ -1076,8 +1148,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     f = fopen("/spiffs/relay_table_entry.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays table entry template file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
         free(relay_table_header);
         free(relay_table_entry_tpl);
         free(relay_table_entry);
@@ -1242,9 +1313,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     httpd_resp_send(req, html_output, strlen(html_output));
 
     // Free dynamically allocated memory
-    free(html_template);
-    free(html_output);
-    free(relays_list_html);
+    free(mem);
     free(device_id);
     free(device_serial);
     free(relay_table_header);

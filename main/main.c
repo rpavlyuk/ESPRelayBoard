@@ -134,6 +134,13 @@ void app_main(void) {
             return;
         }
 
+        if (_DEVICE_ENABLE_NET_LOGGING) {
+            ESP_LOGI(TAG, "Network logging module ENABLED!");
+            // setup network logging
+            ESP_ERROR_CHECK(setup_remote_logging());
+        }
+
+
         // start web
         if (_DEVICE_ENABLE_WEB) {
             ESP_LOGI(TAG, "WEB ENABLED!");

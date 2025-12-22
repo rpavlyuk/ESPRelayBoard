@@ -5,6 +5,8 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(ESPRelayBoard)
 
+set(EXTRA_COMPONENT_DIRS ./components/net-logging)
+
 # Set the target
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
@@ -14,7 +16,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
 spiffs_create_partition_image(storage spiffs FLASH_IN_PROJECT)
 
 # Define the major version
-set(MAJOR_VERSION "1.0.4")
+set(MAJOR_VERSION "1.0.5")
 
 # Find Python interpreter
 find_package(Python3 REQUIRED)

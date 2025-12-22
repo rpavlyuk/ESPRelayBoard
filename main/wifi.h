@@ -8,7 +8,11 @@
 
 extern esp_netif_t *esp_netif_sta;
 
+static const char *wifi_disc_reason_to_str(uint8_t r);
+
 void generate_softap_credentials();
+
+esp_err_t log_sta_credentials();
 
 static void wifi_provisioning_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 
