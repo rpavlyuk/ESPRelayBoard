@@ -27,6 +27,45 @@
 #define BUFFSIZE 1024
 static char ota_write_data[BUFFSIZE + 1] = { 0 };
 
+/**
+ * @brief: Set the result message and error code for a setting update
+ * @param[out] out Pointer to the setting_update_msg_t structure to populate
+ * @param[in] err Error code to set
+ * @param[in] fmt Format string for the message
+ * @param[in] ... Additional arguments for the format string
+ * 
+ * @note: If 'out' is NULL, the function does nothing
+ */
+static inline void set_result(setting_update_msg_t *out,
+                              esp_err_t err,
+                              const char *fmt, ...)
+{
+    if (!out) return;
+
+    out->err_code = err;
+
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(out->msg, sizeof(out->msg), fmt, ap);
+    va_end(ap);
+}
+
+/** 
+ * @brief: Find setting entry by key
+ * 
+ * @param key Setting key to search for
+ * @return Pointer to the setting_entry_t if found, NULL otherwise
+ */
+static const setting_entry_t* find_setting(const char *key)
+{
+    if (!key) return NULL;
+    for (size_t i = 0; i < (sizeof(s_settings)/sizeof(s_settings[0])); i++) {
+        if (strcmp(key, s_settings[i].key) == 0) {
+            return &s_settings[i];
+        }
+    }
+    return NULL;
+}
 
 /** 
  * @brief: Initialize settings:
@@ -537,6 +576,202 @@ esp_err_t settings_init() {
 
     // device ready
     xEventGroupSetBits(g_sys_events, BIT_DEVICE_READY);
+    return ESP_OK;
+}
+
+/**
+ * @brief: Read the old value of a setting as a string
+ * 
+ * @param e Pointer to the setting_entry_t structure
+ * @param ns NVS namespace
+ * @param key Setting key
+ * @param[out] out Pointer to the setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t get_setting_as_string(const setting_entry_t *e,
+                                   const char *ns,
+                                   const char *key,
+                                   setting_update_msg_t *out)
+{
+    if (!e || !out) return ESP_ERR_INVALID_ARG;
+    out->has_old = false;
+    out->old_value_str[0] = '\0';
+
+    esp_err_t err;
+
+    switch (e->type_t) {
+    case SETTING_TYPE_UINT32: {
+        uint32_t v = 0;
+        err = nvs_read_uint32(ns, key, &v);
+        if (err != ESP_OK) return err;
+        snprintf(out->old_value_str, sizeof(out->old_value_str), "%"PRIu32, v);
+        out->has_old = true;
+        return ESP_OK;
+    }
+    case SETTING_TYPE_UINT16: {
+        uint16_t v = 0;
+        err = nvs_read_uint16(ns, key, &v);
+        if (err != ESP_OK) return err;
+        snprintf(out->old_value_str, sizeof(out->old_value_str), "%"PRIu16, v);
+        out->has_old = true;
+        return ESP_OK;
+    }
+
+    case SETTING_TYPE_STRING: {
+        size_t cap = (e->max_str_size > 0 && e->max_str_size < sizeof(out->old_value_str))
+                       ? e->max_str_size
+                       : sizeof(out->old_value_str);
+
+        size_t len = cap;
+        char tmp[OLD_VALUE_STR_MAX_LEN]; // if you want to support > OLD_VALUE_STR_MAX_LEN, increase its value or do dynamic/arena
+        if (cap > sizeof(tmp)) cap = sizeof(tmp);
+        len = cap;
+
+        err = nvs_read_string(ns, key, tmp);
+        if (err != ESP_OK) return err;
+        tmp[cap - 1] = '\0';
+        strlcpy(out->old_value_str, tmp, sizeof(out->old_value_str));
+        out->has_old = true;
+        return ESP_OK;
+    }
+    case SETTING_TYPE_FLOAT: {
+        float v = 0;
+        err = nvs_read_float(ns, key, &v);
+        if (err != ESP_OK) return err;
+        snprintf(out->old_value_str, sizeof(out->old_value_str), "%f", (double)v);
+        out->has_old = true;
+        return ESP_OK;
+    }
+    case SETTING_TYPE_DOUBLE: {
+        double v = 0;
+        err = nvs_read_double(ns, key, &v);
+        if (err != ESP_OK) return err;
+        snprintf(out->old_value_str, sizeof(out->old_value_str), "%lf", v);
+        out->has_old = true;
+        return ESP_OK;
+    }
+    case SETTING_TYPE_BLOB:
+        // blobs are tricky to “print”; you can report size/hash instead
+        return ESP_ERR_NOT_SUPPORTED;
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+}
+
+/**
+ * @brief: Write a new value for a setting
+ * 
+ * @param e Pointer to the setting_entry_t structure
+ * @param ns NVS namespace
+ * @param key Setting key
+ * @param v New value as cJSON object
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t write_setting_value(const setting_entry_t *e,
+                                 const char *ns,
+                                 const char *key,
+                                 const cJSON *v)
+{
+    if (!e || !key || !v) return ESP_ERR_INVALID_ARG;
+
+    switch (e->type_t) {
+    case SETTING_TYPE_UINT32:
+        if (!cJSON_IsNumber(v)) return ESP_ERR_INVALID_ARG;
+        return nvs_write_uint32(ns, key, (uint32_t)v->valuedouble);
+
+    case SETTING_TYPE_UINT16:
+        if (!cJSON_IsNumber(v)) return ESP_ERR_INVALID_ARG;
+        return nvs_write_uint16(ns, key, (uint16_t)v->valuedouble);
+
+    case SETTING_TYPE_STRING:
+        if (!cJSON_IsString(v) || !v->valuestring) return ESP_ERR_INVALID_ARG;
+        if (e->max_str_size > 0 && strlen(v->valuestring) >= e->max_str_size) return ESP_ERR_INVALID_SIZE;
+        return nvs_write_string(ns, key, v->valuestring);
+
+    case SETTING_TYPE_FLOAT:
+        if (!cJSON_IsNumber(v)) return ESP_ERR_INVALID_ARG;
+        return nvs_write_float(ns, key, (float)v->valuedouble);
+
+    case SETTING_TYPE_DOUBLE:
+        if (!cJSON_IsNumber(v)) return ESP_ERR_INVALID_ARG;
+        return nvs_write_double(ns, key, (double)v->valuedouble);
+
+    case SETTING_TYPE_BLOB:
+        // You’d need a format (base64 string?) and then decode -> nvs_write_blob()
+        return ESP_ERR_NOT_SUPPORTED;
+
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+}
+
+/**
+ * @brief: Apply a single setting based on key-value pair
+ * 
+ * @param key: Setting key
+ * @param val: Setting value (cJSON object)
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+esp_err_t apply_setting(const char *key,
+                               const cJSON *val,
+                               setting_update_msg_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+
+    // Default
+    set_result(out, ESP_OK, "OK");
+
+    if (!key || !val) {
+        set_result(out, ESP_ERR_INVALID_ARG, "Invalid key or val (NULL)");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const setting_entry_t *entry = find_setting(key);
+    if (!entry) {
+        // Forward-compatible behavior: ignore unknown keys but tell the user.
+        set_result(out, ESP_ERR_NOT_FOUND, "Unknown setting key or setting is protected (read-only): %s", key);
+        ESP_LOGW(TAG, "Attempt to update unknown or protected setting key: %s", key);
+        return ESP_ERR_NOT_FOUND;
+        // If you want strict mode instead, return ESP_ERR_INVALID_ARG here.
+    }
+
+    // read old (best-effort)
+    esp_err_t rerr = get_setting_as_string(entry, S_NAMESPACE, key, out);
+    if (rerr != ESP_OK) {
+        // you can decide if failing to read old should block update or not
+        // I'd log it but still attempt write.
+        out->has_old = false;
+        out->old_value_str[0] = '\0';
+    }
+
+    // optional per-setting validation / actions
+    if (entry->handler) {
+        esp_err_t herr = entry->handler(key, val, out);
+        if (herr != ESP_OK) return herr;
+        // if handler performs the write itself, you can stop here.
+        // Otherwise let it fall through to generic write.
+    } else {
+        // no handler, proceed to generic write. let's notice it.
+        ESP_LOGI(TAG, "No handler for setting '%s', proceeding to generic write", key);
+    }
+
+    esp_err_t werr = write_setting_value(entry, S_NAMESPACE, key, val);
+    if (werr != ESP_OK) {
+        set_result(out, werr, "Failed to write '%s': %s", key, esp_err_to_name(werr));
+        return werr;
+    } else {
+        ESP_LOGI(TAG, "Successfully updated setting '%s'", key);
+    }
+
+    set_result(out, ESP_OK, "Updated setting '%s'%s%s%s",
+               key,
+               out->has_old ? " (was " : "",
+               out->has_old ? out->old_value_str : "",
+               out->has_old ? ")" : "");
     return ESP_OK;
 }
 
@@ -1096,3 +1331,194 @@ esp_err_t setup_remote_logging() {
     free(net_log_host);
     return ESP_OK;
 }
+
+
+/** Settings update handlers **/
+
+/**
+ * @brief: Handle Home Assistant auto-discovery interval setting validation handler
+ * 
+ * @param v: cJSON object containing the new interval value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_ha_upd_intervl(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (HA_UPDATE_INTERVAL_MIN and HA_UPDATE_INTERVAL_MAX)
+    if (v->valueint < HA_UPDATE_INTERVAL_MIN || v->valueint > HA_UPDATE_INTERVAL_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG, "Home Assistant auto-discovery interval value out of range (%d - %d)", HA_UPDATE_INTERVAL_MIN, HA_UPDATE_INTERVAL_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Handle MQTT connection mode setting validation handler
+ * 
+ * @param v: cJSON object containing the new MQTT connection mode value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_mqtt_connect(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int mode = (int)v->valuedouble;
+
+    if (!mqtt_conn_mode_is_valid(mode)) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "mqtt_conn_mode invalid (%d). Allowed: %d..%d",
+                   mode,
+                   MQTT_CONN_MODE_DISABLE,
+                   MQTT_CONN_MODE_AUTOCONNECT);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+
+/**
+ * @brief: Handle MQTT port setting validation handler
+ * 
+ * @param v: cJSON object containing the new MQTT port value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_mqtt_port(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (HA_UPDATE_INTERVAL_MIN and HA_UPDATE_INTERVAL_MAX)
+    if (v->valueint < 1 || v->valueint > 65535) {
+        set_result(out, ESP_ERR_INVALID_ARG, "MQTT Port value out of range (1 - 65535)");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Handle Relay refresh interval setting validation handler
+ * 
+ * @param v: cJSON object containing the new interval value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_relay_refr_int(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (RELAY_REFRESH_INTERVAL_MIN and RELAY_REFRESH_INTERVAL_MAX)
+    if (v->valueint < RELAY_REFRESH_INTERVAL_MIN || v->valueint > RELAY_REFRESH_INTERVAL_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG, "Relay refresh interval value out of range (%d - %d)", RELAY_REFRESH_INTERVAL_MIN, RELAY_REFRESH_INTERVAL_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Handle Relay channel count setting validation handler
+ * 
+ * @param v: cJSON object containing the new channel count value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_relay_ch_count(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (CHANNEL_COUNT_MIN and CHANNEL_COUNT_MAX)
+    if (v->valueint < CHANNEL_COUNT_MIN || v->valueint > CHANNEL_COUNT_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG, "Relay channel count value out of range (%d - %d)", CHANNEL_COUNT_MIN, CHANNEL_COUNT_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Handle Relay contact sensors count setting validation handler
+ * 
+ * @param v: cJSON object containing the new contact sensors count value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_relay_sn_count(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (CONTACT_SENSORS_COUNT_MIN and CONTACT_SENSORS_COUNT_MAX)
+    if (v->valueint < CONTACT_SENSORS_COUNT_MIN || v->valueint > CONTACT_SENSORS_COUNT_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG, "Contact sensors count value out of range (%d - %d)", CONTACT_SENSORS_COUNT_MIN, CONTACT_SENSORS_COUNT_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+
+/**
+ * @brief: Handle Network logging type setting validation handler
+ * 
+ * @param v: cJSON object containing the new network logging type value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_net_log_type(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int type = (int)v->valuedouble;
+
+    if (type < 0 || type > 3) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "net_log_type invalid (%d). Allowed: %d..%d",
+                   type,
+                   0,
+                   3);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+
+/**
+ * @brief: Handle Network logging port setting validation handler
+ * 
+ * @param v: cJSON object containing the new network logging port value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_net_log_port(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    // check if the value is within allowed range (1 - 65535)
+    if (v->valueint < 1 || v->valueint > 65535) {
+        set_result(out, ESP_ERR_INVALID_ARG, "TCP/UDP Logging port value out of range (1 - 65535)");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief: Handle Network logging stdout setting validation handler
+ * 
+ * @param v: cJSON object containing the new network logging stdout value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int type = (int)v->valuedouble;
+
+    if (type < 0 || type > 1) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "net_log_stdout invalid (%d). Allowed: %d..%d",
+                   type,
+                   0,
+                   1);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+

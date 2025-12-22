@@ -169,6 +169,16 @@ void run_http_server(void *param) {
         // Register the reset URI handler
         httpd_register_uri_handler(server, &reset_uri);
 
+        httpd_uri_t setting_update_uri = {
+            .uri      = "/api/setting/update",  // URL endpoint
+            .method   = HTTP_POST,       // HTTP method
+            .handler  = set_setting_value_post_handler, // Function to handle the request
+            .user_ctx = NULL            // User context, if needed
+        };
+
+        // Register the setting update URI handler
+        httpd_register_uri_handler(server, &setting_update_uri);
+
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -373,6 +383,54 @@ int extract_param_value(const char *buf, const char *param_name, char *output, s
         return 0;  // Return 0 length when not found
     }
 }
+
+/**
+ * @brief Converts a cJSON value to its string representation.
+ *
+ * This function takes a cJSON value and converts it to a string representation.
+ * The resulting string is stored in the provided output buffer.
+ *
+ * @param v Pointer to the cJSON value to convert.
+ * @param out Output buffer where the string representation will be stored.
+ * @param out_sz Size of the output buffer.
+ */
+static void json_value_to_string(const cJSON *v, char *out, size_t out_sz)
+{
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+
+    if (!v) {
+        strlcpy(out, "<null>", out_sz);
+        return;
+    }
+
+    if (cJSON_IsString(v)) {
+        strlcpy(out, v->valuestring ? v->valuestring : "", out_sz);
+    } else if (cJSON_IsNumber(v)) {
+        // cJSON numbers are double internally; valueint is OK for ints
+        // Use integer formatting if it looks integer-ish
+        double d = v->valuedouble;
+        if ((double)((int64_t)d) == d) {
+            snprintf(out, out_sz, "%lld", (long long)((int64_t)d));
+        } else {
+            snprintf(out, out_sz, "%.6f", d);
+        }
+    } else if (cJSON_IsBool(v)) {
+        strlcpy(out, cJSON_IsTrue(v) ? "true" : "false", out_sz);
+    } else if (cJSON_IsNull(v)) {
+        strlcpy(out, "null", out_sz);
+    } else {
+        // object/array/blob-ish: store compact JSON
+        char *tmp = cJSON_PrintUnformatted((cJSON *)v);
+        if (tmp) {
+            strlcpy(out, tmp, out_sz);
+            cJSON_free(tmp);
+        } else {
+            strlcpy(out, "<unprintable>", out_sz);
+        }
+    }
+}
+
 
 /* HANDLERS */
 /**
@@ -1419,7 +1477,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON *device_serial_item = cJSON_GetObjectItem(data, "device_serial");
     if (device_serial_item == NULL || !cJSON_IsString(device_serial_item)) {
         ESP_LOGE(TAG, "Missing or invalid 'device_serial' in JSON data");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid 'device_serial'");
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Missing or invalid 'device_serial'");
         cJSON_Delete(json);  // Don't forget to free the cJSON object
         return ESP_FAIL;
     }
@@ -1589,6 +1647,211 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON_free(response_str);
     return ESP_OK;
 }
+
+
+/**
+ * @brief Handler for /api/setting/update endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
+static esp_err_t set_setting_value_post_handler(httpd_req_t *req) {
+    /**
+     * Request JSON format:
+     * {
+            "device_id": "<DEVICE_ID>",
+            "device_serial": "<DEVICE_SERIAL>"
+            "data": {
+                <"setting_key":   "setting_value",>
+            },
+            "action": <code> // 0 - no action, 1 - reboot if no errors, 2 - force reboot
+        }
+     * 
+     * Request JSON example:
+      {
+            "device_id": "9C9E6E0D8C5C",
+            "device_serial": "VU7303USWVEP6ENQ3POTTFHVV7JH97QX"
+            data: {
+                "ota_update_url":   "http://localhost:8080/ota/relayboard.bin",
+                "ha_upd_intervl":   60000
+            },
+            "action": 1
+        }
+     */
+    esp_err_t err;
+
+    char content[MAX_JSON_BUFFER_SIZE];
+    // Get the POST data
+    int total_len = req->content_len;
+    int received = 0;
+    if (total_len >= sizeof(content)) {
+        ESP_LOGE(TAG, "Content size overflowing the buffer!");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    while (received < total_len) {
+        int ret = httpd_req_recv(req, content + received, total_len - received);
+        if (ret <= 0) {
+            ESP_LOGE(TAG, "Unexpected error while reading from request: %i", ret);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        received += ret;
+    }
+    content[received] = '\0';
+
+    // Log request content
+    ESP_LOGI(TAG, "Received settings update request: %s", content);
+
+    // Parse the incoming JSON data
+    cJSON *json_request = cJSON_Parse(content);
+    if (json_request == NULL) {
+        ESP_LOGE(TAG, "Settings update: Failed to parse JSON request");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON format");
+        return ESP_FAIL;
+    }
+
+    // Validate of device_id and device_serial match the stored values
+    // 1 - get device_id and device_serial from JSON
+    cJSON *device_id_item = cJSON_GetObjectItem(json_request, "device_id");
+    cJSON *device_serial_item = cJSON_GetObjectItem(json_request, "device_serial");
+    if (device_id_item == NULL || !cJSON_IsString(device_id_item) ||
+        device_serial_item == NULL || !cJSON_IsString(device_serial_item)) {
+        ESP_LOGE(TAG, "Settings update: Missing or invalid 'device_id' or 'device_serial' in JSON request");
+        cJSON_Delete(json_request);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid 'device_id' or 'device_serial'");
+        return ESP_FAIL;
+    }
+    // 2 - read actual values from NVS
+    char *device_id_nvs = NULL;
+    char *device_serial_nvs = NULL;
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id_nvs));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs));
+    // 3 - compare
+    if (strcmp(device_id_item->valuestring, device_id_nvs) != 0 ||
+        strcmp(device_serial_item->valuestring, device_serial_nvs) != 0) {
+        ESP_LOGE(TAG, "Settings update: Device ID or serial mismatch");
+        free(device_id_nvs);
+        free(device_serial_nvs);
+        cJSON_Delete(json_request);
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Device ID or serial mismatch");
+        return ESP_FAIL;
+    }
+    free(device_id_nvs);
+    free(device_serial_nvs);
+
+    // Get the 'data' array from JSON
+    cJSON *data = cJSON_GetObjectItem(json_request, "data");
+    if (data == NULL) {
+        ESP_LOGE(TAG, "Settings update: No 'data' object in JSON request");
+        cJSON_Delete(json_request);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON format: missing 'data' object");
+        return ESP_FAIL;
+    }
+
+    // Iterate over each setting in the 'data' object
+    cJSON *setting = NULL;
+    int success_count = 0;
+    int failure_count = 0;
+    int total_count = 0;
+
+    // Response root
+    cJSON *resp_root = cJSON_CreateObject();
+    cJSON *resp_status = cJSON_CreateObject();
+    cJSON *resp_details = cJSON_CreateObject();
+
+    cJSON_AddItemToObject(resp_root, "status", resp_status);
+    cJSON_AddItemToObject(resp_root, "details", resp_details);
+
+    cJSON_ArrayForEach(setting, data) {
+        setting_update_msg_t update_msg = {0};
+
+        const char *setting_key = setting->string;
+        if (setting_key == NULL) {
+            ESP_LOGW(TAG, "Settings update: Encountered setting with NULL key, skipping");
+            continue;
+        }
+
+        // log the setting being processed
+        ESP_LOGI(TAG, "Settings update: Processing setting '%s'", setting_key);
+
+        total_count++;
+
+        // Apply the setting
+        esp_err_t err = apply_setting(setting_key, setting, &update_msg);
+
+        // Prepare per-key details object
+        cJSON *one = cJSON_CreateObject();
+
+        // old_value
+        if (update_msg.has_old) {
+            cJSON_AddStringToObject(one, "old_value", update_msg.old_value_str);
+        } else {
+            cJSON_AddNullToObject(one, "old_value");
+        }
+
+        // new_value (stringified)
+        char new_value_str[128];
+        json_value_to_string(setting, new_value_str, sizeof(new_value_str));
+        cJSON_AddStringToObject(one, "new_value", new_value_str);
+
+        // status: 0 success, 1 failed
+        int status = (err == ESP_OK) ? 0 : 1;
+        cJSON_AddNumberToObject(one, "status", status);
+
+        // error_msg: include only on failure (or always, your call)
+        const char *msg = update_msg.msg[0] ? update_msg.msg : esp_err_to_name(err);
+        cJSON_AddStringToObject(one, "error_msg", msg);
+        if (err != ESP_OK) {
+            failure_count++;           
+        } else {
+            success_count++;
+        }
+
+        // Attach this key’s object
+        cJSON_AddItemToObject(resp_details, setting_key, one);
+    }
+
+    // Fill the status block
+    cJSON_AddNumberToObject(resp_status, "success", success_count);
+    cJSON_AddNumberToObject(resp_status, "failed",  failure_count);
+    cJSON_AddNumberToObject(resp_status, "total",   total_count);
+
+    // Serialize and send
+    char *resp_str = cJSON_PrintUnformatted(resp_root);
+    if (!resp_str) {
+        cJSON_Delete(resp_root);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to build response JSON");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+
+    cJSON_free(resp_str);
+    cJSON_Delete(resp_root);
+    cJSON_Delete(json_request);
+
+    return ESP_OK;
+    /**
+      Response format:
+        {
+            "status": {
+                "success": <number of successfully updated settings>,
+                "failed": <number of failed settings updates>,
+                "total": <total number of settings in the request>
+            },
+            "details": {
+                    "<setting_key>": {
+                        "old_value": "<OLD_VALUE>",
+                        "new_value": "<NEW_VALUE>",
+                        "status": 0 // 0 = success, 1 = failed
+                        "error_msg": "<ERROR_MESSAGE_IF_ANY>"
+                    }
+            }
+        }   
+     */
+}   
 
 /**
  * @brief Handler for /api/status endpoint

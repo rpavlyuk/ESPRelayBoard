@@ -1282,3 +1282,18 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
 
     return ESP_OK;
 }
+
+/**
+ * @brief: Validate MQTT connection mode value
+ * 
+ * This function validates the MQTT connection mode value. The function checks if the
+ * value is within the valid range of MQTT connection modes.
+ * 
+ * @param[in] v The MQTT connection mode value to validate.
+ * 
+ * @return bool   true if the value is valid, false otherwise.
+ */
+bool mqtt_conn_mode_is_valid(int v)
+{
+    return (v >= MQTT_CONN_MODE_DISABLE) && (v <= MQTT_CONN_MODE_AUTOCONNECT);
+}

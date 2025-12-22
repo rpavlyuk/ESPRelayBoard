@@ -8,6 +8,7 @@
 #define MAX_SMALL_TEMPLATE_SIZE       8192
 #define MAX_TBL_ENTRY_SIZE      2048
 #define MAX_CA_CERT_SIZE        8192
+#define MAX_JSON_BUFFER_SIZE    2048
 
 
 void run_http_server(void *param);
@@ -22,6 +23,7 @@ static esp_err_t status_get_handler(httpd_req_t *req);
 static esp_err_t ca_cert_post_handler(httpd_req_t *req);
 static esp_err_t relays_get_handler(httpd_req_t *req);
 static esp_err_t update_relay_post_handler(httpd_req_t *req);
+static esp_err_t set_setting_value_post_handler(httpd_req_t *req);
 /**
  * @brief HTTP GET handler to return a JSON list of all relays and contact sensors.
  * 
@@ -42,8 +44,9 @@ esp_err_t reset_post_handler(httpd_req_t *req);
 void assign_static_page_variables(char *html_output);
 void replace_placeholder(char *html_output, const char *placeholder, const char *value);
 int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size);
+static void json_value_to_string(const cJSON *v, char *out, size_t out_sz);
 
-int hex2dec(char c);
+int hex_to_dec(char c);
 void url_decode(char *str);
 void str_trunc_after(char *str, const char *lookup);
 

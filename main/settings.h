@@ -114,6 +114,40 @@
 
 #define S_DEFAULT_OTA_UPDATE_URL                 "http://localhost:8080/ota/relayboard.bin"
 
+
+/**
+ * Settings handlers and structures
+ */
+
+#define OLD_VALUE_STR_MAX_LEN    256
+
+typedef enum {
+    SETTING_TYPE_UINT32,
+    SETTING_TYPE_UINT16,
+    SETTING_TYPE_STRING,
+    SETTING_TYPE_BLOB,
+    SETTING_TYPE_FLOAT,
+    SETTING_TYPE_DOUBLE,
+} settings_type_t;
+
+typedef struct {
+    char msg[256];
+    esp_err_t err_code;
+    bool has_old;
+    char old_value_str[OLD_VALUE_STR_MAX_LEN];   // generic printable form
+} setting_update_msg_t;
+
+typedef esp_err_t (*setting_handler_t)( const char *key,
+                                        const cJSON *value,                                    
+                                        setting_update_msg_t *out);
+
+typedef struct {
+    const char *key;
+    setting_handler_t handler;      // optional per-setting extra validation/side-effects
+    size_t max_str_size;            // for STRING (and maybe BLOB base64 if you choose)
+    settings_type_t type_t;
+} setting_entry_t;
+
 /**
  * Paths
  */
@@ -142,11 +176,68 @@ typedef struct {
  */ 
 
 /**
+ * @brief: Setting handlers implementation
+ */
+static esp_err_t handle_setting_ha_upd_intervl(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_mqtt_connect(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_mqtt_port(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_relay_refr_int(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_relay_ch_count(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_relay_sn_count(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_net_log_type(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_net_log_port(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, setting_update_msg_t *out);
+
+/**
+ * @brief: Setting handlers mapping table
+ */
+static const setting_entry_t s_settings[] = {
+    { S_KEY_OTA_UPDATE_URL, NULL, OTA_UPDATE_URL_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_HA_UPDATE_INTERVAL, handle_setting_ha_upd_intervl, 0, SETTING_TYPE_UINT32 },
+    { S_KEY_MQTT_CONNECT, handle_setting_mqtt_connect, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_MQTT_SERVER, NULL, MQTT_SERVER_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_MQTT_PORT, handle_setting_mqtt_port, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_MQTT_PROTOCOL, NULL, MQTT_PROTOCOL_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_MQTT_USER, NULL, MQTT_USER_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_MQTT_PASSWORD, NULL, MQTT_PASSWORD_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_MQTT_PREFIX, NULL, MQTT_PREFIX_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_HA_PREFIX, NULL, HA_PREFIX_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_RELAY_REFRESH_INTERVAL, handle_setting_relay_refr_int, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_CHANNEL_COUNT, handle_setting_relay_ch_count, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_CONTACT_SENSORS_COUNT, handle_setting_relay_sn_count, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_NET_LOGGING_TYPE, handle_setting_net_log_type, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_NET_LOGGING_HOST, NULL, NET_LOGGING_HOST_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_NET_LOGGING_PORT, handle_setting_net_log_port, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_NET_LOGGING_KEEP_STDOUT, handle_setting_net_log_stdout, 0, SETTING_TYPE_UINT16 },
+};
+
+/**
  * @brief Initialize settings:
  *  - fill-in missing settings with default values
  * 
  */
 esp_err_t settings_init();
+
+/**
+ * @brief: Read the old value of a setting as a string
+ */
+static esp_err_t get_setting_as_string(const setting_entry_t *e,
+                                   const char *ns,
+                                   const char *key,
+                                   setting_update_msg_t *out);
+
+/**
+ * @brief: Write setting value from cJSON to NVS
+ */
+static esp_err_t write_setting_value(const setting_entry_t *e,
+                                 const char *ns,
+                                 const char *key,
+                                 const cJSON *v);
+
+/**
+ * @brief: Apply setting based on key and cJSON value
+ */
+esp_err_t apply_setting(const char *key, const cJSON *val, setting_update_msg_t *out);
 
 /**
  * @brief: Initialize basic (platform) settings for the device

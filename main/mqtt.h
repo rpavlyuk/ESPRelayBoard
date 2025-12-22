@@ -22,7 +22,7 @@
  * @brief: MQTT connection mode for the device
  */
 typedef enum {
-    MQTT_CONN_MODE_DISABLE,           // soft disable MQTT
+    MQTT_CONN_MODE_DISABLE = 0,           // soft disable MQTT
     MQTT_CONN_MODE_NO_RECONNECT,      // connect initially to MQTT, but do NOT reconnect
     MQTT_CONN_MODE_AUTOCONNECT,       // connect initially to MQTT and reconnect when lost
 } mqtt_connection_mode_t;
@@ -78,5 +78,7 @@ char *get_element_from_path(const char *path, int index);
 char** str_split(char* a_str, const char a_delim, size_t *element_count);
 
 esp_err_t mqtt_relay_subscribe(relay_unit_t *relay);
+
+bool mqtt_conn_mode_is_valid(int v);
 
 #endif // MQTT_H
