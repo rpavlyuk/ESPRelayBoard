@@ -110,6 +110,12 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
    ```
    cd D:\Work\esp\projects\ESPRelayBoard
    ```
+4. **Prepare the configuration**:
+   The project already contains some pre-built SDK configuration files (```sdkconfig```) depending on the board type. You will find them in the project's root as ```sdkconfig.*```. Just copy the one which corresponds to you board, for example:
+   ```bash
+	cp -a sdkconfig.esp32-s3 sdkconfig
+   ```
+   See more details on how to play with ```sdkconfig``` in the section **Flash the Firmware** below.
 4. **Build the firmware**:
    ```bash
    idf.py build
