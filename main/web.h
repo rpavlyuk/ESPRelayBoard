@@ -5,6 +5,7 @@
 
 #define MAX_TEMPLATE_SIZE       17408
 #define MAX_LARGE_TEMPLATE_SIZE       24576
+#define MAX_SMALL_TEMPLATE_SIZE       8192
 #define MAX_TBL_ENTRY_SIZE      2048
 #define MAX_CA_CERT_SIZE        8192
 
@@ -14,7 +15,7 @@ esp_err_t stop_http_server(httpd_handle_t server);
 esp_err_t http_stop(void);
 
 static esp_err_t config_get_handler(httpd_req_t *req);
-static esp_err_t submit_post_handler(httpd_req_t *req);
+static esp_err_t submit_config_handler(httpd_req_t *req);
 static esp_err_t reboot_handler(httpd_req_t *req);
 static esp_err_t status_data_handler(httpd_req_t *req);
 static esp_err_t status_get_handler(httpd_req_t *req);

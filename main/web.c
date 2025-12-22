@@ -80,7 +80,7 @@ void run_http_server(void *param) {
         httpd_uri_t submit_uri = {
             .uri       = "/submit",
             .method    = HTTP_POST,
-            .handler   = submit_post_handler,
+            .handler   = submit_config_handler,
             .user_ctx  = NULL
         };
         httpd_register_uri_handler(server, &submit_uri);
@@ -351,7 +351,7 @@ void url_decode(char *src) {
  * @param param_name The name of the parameter to search for.
  * @param output The buffer where the extracted parameter value will be stored.
  * @param output_size The size of the output buffer.
- * @return An integer indicating the success or failure of the extraction.
+ * @return An integer providing the length of the extracted value, or 0 if the parameter is not found.
  */
 int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size) {
     char *start = strstr(buf, param_name);
@@ -391,30 +391,40 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     // empty message
     const char* message = "";
 
-    // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_LARGE_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_LARGE_TEMPLATE_SIZE);
+    // Prefer one big allocation to reduce fragmentation
+    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE;
+    const size_t total = buf_size * 2;
 
-    if (html_template == NULL || html_output == NULL) {
-        ESP_LOGE(TAG, "Memory allocation failed");
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        httpd_resp_send_500(req);
+    char *mem = (char *)malloc(total);
+
+    if (!mem) {
+        ESP_LOGE(TAG, "OOM: config handler needs %u bytes (free=%u, min_free=%u)",
+                 (unsigned)total,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size());
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "ESP device is out of free memory");
         return ESP_FAIL;
     }
+
+    // Split memory into 2 regions
+    char *html_template    = mem;
+    char *html_output      = mem + buf_size;
+
+    html_template[0] = '\0';
+    html_output[0] = '\0';
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
     FILE *f = fopen("/spiffs/config.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
 
     // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    size_t len = fread(html_template, 1, MAX_LARGE_TEMPLATE_SIZE, f);
     fclose(f);
     html_template[len] = '\0';  // Null-terminate the string
 
@@ -471,8 +481,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *ca_cert_mqtts = NULL;
     if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
+        if (mem) free(mem);
         httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
@@ -482,8 +491,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *ca_cert_https = NULL;
     if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
+        if (mem) free(mem);
         httpd_resp_send_500(req);
         return ESP_FAIL;
     } else {
@@ -543,8 +551,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     httpd_resp_send(req, html_output, strlen(html_output));
 
     // Free dynamically allocated memory
-    free(html_template);
-    free(html_output);
+    free(mem);
+    mem = NULL;
     free(mqtt_server);
     free(mqtt_protocol);
     free(mqtt_user);
@@ -571,7 +579,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
  * 
  * @return ESP_OK on success, or an error code on failure
  */
-static esp_err_t submit_post_handler(httpd_req_t *req) {
+static esp_err_t submit_config_handler(httpd_req_t *req) {
     // Extract form data
     char buf[1024];
     memset(buf, 0, sizeof(buf));  // Initialize the buffer with zeros to avoid any garbage
@@ -593,24 +601,35 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     // empty message
     const char* success_message = "<div class=\"alert alert-primary alert-dismissible fade show\" role=\"alert\"> Parameters saved successfully. A device reboot might be required for the setting to come into effect.<button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button></div>";
     
-    // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+    // Prefer one big allocation to reduce fragmentation
+    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE;
+    const size_t total = buf_size * 2;
 
-    if (html_template == NULL || html_output == NULL) {
-        ESP_LOGE(TAG, "Memory allocation failed");
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        httpd_resp_send_500(req);
+    char *mem = (char *)malloc(total);
+
+    if (!mem) {
+        ESP_LOGE(TAG, "OOM: config handler needs %u bytes (free=%u, min_free=%u)",
+                 (unsigned)total,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size());
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "ESP device is out of free memory");
         return ESP_FAIL;
     }
+
+    // Split memory into 2 regions
+    char *html_template    = mem;
+    char *html_output      = mem + buf_size;
+
+    html_template[0] = '\0';
+    html_output[0] = '\0';
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
     FILE *f = fopen("/spiffs/config.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
@@ -845,8 +864,8 @@ static esp_err_t submit_post_handler(httpd_req_t *req) {
     httpd_resp_send(req, html_output, strlen(html_output));
 
     // Free dynamically allocated memory
-    free(html_template);
-    free(html_output);
+    free(mem);
+    mem = NULL;
     free(mqtt_server);
     free(mqtt_protocol);
     free(mqtt_user);
@@ -888,30 +907,41 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     }
     int received = 0;
 
-    // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+    // Prefer one big allocation to reduce fragmentation
+    const size_t buf_size = MAX_SMALL_TEMPLATE_SIZE;
+    const size_t total = buf_size * 2;
 
-    if (html_template == NULL || html_output == NULL) {
-        ESP_LOGE(TAG, "Memory allocation failed");
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        httpd_resp_send_500(req);
+    char *mem = (char *)malloc(total);
+
+    if (!mem) {
+        ESP_LOGE(TAG, "OOM: config handler needs %u bytes (free=%u, min_free=%u)",
+                 (unsigned)total,
+                 (unsigned)esp_get_free_heap_size(),
+                 (unsigned)esp_get_minimum_free_heap_size());
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "ESP device is out of free memory");
         return ESP_FAIL;
     }
+
+    // Split memory into 2 regions
+    char *html_template    = mem;
+    char *html_output      = mem + buf_size;
+
+    html_template[0] = '\0';
+    html_output[0] = '\0';
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
     FILE *f = fopen("/spiffs/ca-cert-saving.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open file for reading");
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
 
     // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    size_t len = fread(html_template, 1, MAX_SMALL_TEMPLATE_SIZE, f);
     fclose(f);
     html_template[len] = '\0';  // Null-terminate the string
 
@@ -923,11 +953,13 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     char *content = (char *)malloc(total_len + 1);
     if (content == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for CA certificate");
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
         return ESP_ERR_NO_MEM;
     }
+    // Fill content with zeros to avoid garbage
+    memset(content, 0, total_len + 1);
 
     // Read the certificate data from the request in chunks
     while (received < total_len) {
@@ -939,8 +971,9 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
                 ESP_LOGE(TAG, "Error while receiving POST data: error %s, code %d", esp_err_to_name(ret), ret);
             }
             free(content); // Free the allocated memory in case of failure
-            free(html_template);
-            free(html_output);
+            free(mem);
+            mem = NULL;
+            content = NULL;
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
             return ESP_FAIL;
         }
@@ -950,14 +983,15 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
 
     ESP_LOGI(TAG, "POST Content:\n%s", content);
 
-    // Extract certificate type from the request CA_CERT_TYPE_LENGTH
+    // Extract certificate type from the request: mqtts or https
     char ca_type[MAX_CA_CERT_SIZE];
     int ca_type_length = extract_param_value(content, "cert_type=", ca_type, MAX_CA_CERT_SIZE);
     if (ca_type_length <= 0) {
         ESP_LOGE(TAG, "Failed to extract CA certificate type from the received data");
         free(content);
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
+        content = NULL;
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to extract certificate type");
         return ESP_FAIL;
     }
@@ -974,8 +1008,10 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Failed to extract CA certificate from the received data");
         free(content);
         free(ca_cert);
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
+        content = NULL;
+        ca_cert = NULL;
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to extract certificate");
         return ESP_FAIL;
     }
@@ -996,8 +1032,10 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Failed to save CA certificate");
         free(content);
         free(ca_cert);
-        free(html_template);
-        free(html_output);
+        free(mem);
+        mem = NULL;
+        content = NULL;
+        ca_cert = NULL;
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save certificate");
         return ESP_FAIL;
     }
@@ -1010,8 +1048,11 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, html_output);
     ESP_LOGI(TAG, "CA certificate saving request processed successfully");
 
-    free(html_template);
-    free(html_output);
+    free(mem);
+    mem = NULL;
+    content = NULL;
+    ca_cert = NULL;
+
     return ESP_OK;
 }
 
@@ -1103,6 +1144,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     if (html_template == NULL || html_output == NULL || relay_table_header == NULL || relay_table_entry_tpl == NULL || relay_table_entry == NULL) {
         ESP_LOGE(TAG, "Memory allocation failed");
         if (mem) free(mem);
+        mem = NULL;
         if (relay_table_header) free(relay_table_header);
         if (relay_table_entry_tpl) free(relay_table_entry_tpl);
         if (relay_table_entry) free(relay_table_entry);
@@ -1133,6 +1175,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays table header template file for reading");
         free(mem);
+        mem = NULL;
         free(relay_table_header);
         free(relay_table_entry_tpl);
         free(relay_table_entry);
@@ -1149,6 +1192,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays table entry template file for reading");
         free(mem);
+        mem = NULL;
         free(relay_table_header);
         free(relay_table_entry_tpl);
         free(relay_table_entry);
@@ -1314,6 +1358,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     // Free dynamically allocated memory
     free(mem);
+    mem = NULL;
     free(device_id);
     free(device_serial);
     free(relay_table_header);
@@ -1833,7 +1878,7 @@ esp_err_t ota_post_handler(httpd_req_t *req) {
 }
 
 /**
- * @brief HTTP POST handler to reset the device to factory settings.
+ * @brief HTTP POST handler to reset the device to factory settings and/or reboot the device.
  *
  * This function is registered as an HTTP POST handler that resets the device to factory settings.
  * It reads the device ID and serial from NVS, validates them against the request, and performs the reset action.
@@ -1883,7 +1928,7 @@ esp_err_t reset_post_handler(httpd_req_t *req) {
     // Validate device_serial and device_id
     if (strcmp(device_id, received_device_id) != 0 || strcmp(device_serial, received_device_serial) != 0) {
         ESP_LOGE(TAG, "Device validation failed: mismatched device_id or device_serial.");
-        httpd_resp_send_500(req);
+        ESP_ERROR_CHECK(httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Device validation failed"));
         return ESP_FAIL;
     }
 
@@ -1892,27 +1937,35 @@ esp_err_t reset_post_handler(httpd_req_t *req) {
     // Perform the appropriate reset action
     switch (action) {
         case 0:
+            // Full factory reset
             ret = reset_factory_settings();
             break;
         case 1:
+            // Reset device settings only (wifi settings preserved)
             ret = reset_device_settings();
             break;
         case 2:
+            // Reset WiFi settings only (device settings preserved)
+            //  NOTE: this will also disconnect from current WiFi network and the device will lose connectivity so the initizial network setup will be required again
             ret = reset_wifi_settings();
+            break;
+        case 9:
+            // Just reboot the device, no other actions taken
+            ret = system_reboot();
             break;
         default:
             ESP_LOGE(TAG, "Unknown action requested: %d", action);
-            httpd_resp_send_500(req);
+            ESP_ERROR_CHECK(httpd_resp_send_404(req));
             return ESP_FAIL;
     }
 
     // Reboot the device if reset action was successful
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Reset action %d completed successfully. Rebooting...", action);
+        ESP_LOGI(TAG, "Action code %d completed successfully. Rebooting...", action);
         return reboot_handler(req);
     } else {
-        ESP_LOGE(TAG, "Reset action %d failed: %s", action, esp_err_to_name(ret));
-        httpd_resp_send_500(req);
+        ESP_LOGE(TAG, "Action code %d failed: %s", action, esp_err_to_name(ret));
+        ESP_ERROR_CHECK(httpd_resp_send_500(req));
     }
 
     return ret;
