@@ -193,6 +193,14 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
   * `Contact sensors count`: number of contact sensors you'd like to activate  and monitor
   * `Refresh interval (ms)`: relay/sensor reading update interval. Used in WEB interface.
+* Network logging parameters:
+  * `Logging Type`: what logging mechaism to use.
+    * `Disabled`: Default setting. No network logging is enabled.
+    * `UDP`, `TCP`: The device supports remote logging using the Syslog protocol (RFC 3164 / RFC 5424) over UDP or TCP (recommended). You may capture the logs using [RSyslog](https://www.rsyslog.com) or other compatible tools like [Graylog](https://graylog.org). **NOTE:** SSL/TLS encryption is not supported, so ensure safe environment when sending logs outside the secure perimeter.
+    * `MQTT`: Logging to a specified MQTT topic. *Currently not implemented*
+  * `Logging Host`: IP or hostname to send logs to. Must be within the same LAN when using UDP broadcast address.
+  * `Logging Port`: UDP/TCP port on the target host.
+  * `Keep Stdout Logging`: keep sending messages to STDOUT (console) even when network logging is enabled.
 * `CA / Root Certificates`: PEM formatted SSL root/intermediate certificate. Used by MQTTS connection and HTTPS firmware OTA update. You can separately configure the certificate for MQTT and for OTA update via HTTPS.
 
 Changing number of sensors or relays requires a restart of the device. Use button `Reboot Device` at the bottom of configuration page.
