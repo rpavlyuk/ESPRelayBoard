@@ -17,6 +17,8 @@
 
 #include "esp_wifi.h"
 
+#include "cJSON.h"
+
 #include "settings.h"
 #include "flags.h"
 #include "non_volatile_storage.h"
@@ -26,6 +28,8 @@
 
 #define BUFFSIZE 1024
 static char ota_write_data[BUFFSIZE + 1] = { 0 };
+
+const size_t s_settings_count = sizeof(s_settings)/sizeof(s_settings[0]);
 
 /**
  * @brief: Set the result message and error code for a setting update
@@ -619,19 +623,34 @@ static esp_err_t get_setting_as_string(const setting_entry_t *e,
     }
 
     case SETTING_TYPE_STRING: {
-        size_t cap = (e->max_str_size > 0 && e->max_str_size < sizeof(out->old_value_str))
-                       ? e->max_str_size
-                       : sizeof(out->old_value_str);
-
-        size_t len = cap;
-        char tmp[OLD_VALUE_STR_MAX_LEN]; // if you want to support > OLD_VALUE_STR_MAX_LEN, increase its value or do dynamic/arena
-        if (cap > sizeof(tmp)) cap = sizeof(tmp);
-        len = cap;
-
-        err = nvs_read_string(ns, key, tmp);
+        // nvs_read_string allocates; we must free
+        char *buf_value = NULL;
+        err = nvs_read_string(ns, key, &buf_value);
         if (err != ESP_OK) return err;
-        tmp[cap - 1] = '\0';
-        strlcpy(out->old_value_str, tmp, sizeof(out->old_value_str));
+
+        // Compute effective max we are willing to store in out->old_value_str
+        size_t cap = sizeof(out->old_value_str);
+        if (e->max_str_size > 0 && e->max_str_size < cap) {
+            cap = e->max_str_size;
+        }
+
+        // Ensure we always NUL-terminate inside out->old_value_str
+        // cap is the maximum destination size we want to consider (including NUL)
+        if (cap == 0) {
+            free(buf_value);
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        // Copy and truncate
+        strlcpy(out->old_value_str, buf_value, cap);
+
+        // If cap < sizeof(out->old_value_str), ensure remainder isn't stale (optional)
+        if (cap < sizeof(out->old_value_str)) {
+            out->old_value_str[cap - 1] = '\0';
+        }
+
+        free(buf_value);
+
         out->has_old = true;
         return ESP_OK;
     }
@@ -1332,6 +1351,246 @@ esp_err_t setup_remote_logging() {
     return ESP_OK;
 }
 
+/**
+ * @brief: Get the default size for a setting type
+ * 
+ * @param t: Setting type
+ * @param e: Pointer to the setting_entry_t structure (can be NULL)
+ * 
+ * @return Default size in bytes for the given setting type
+ */
+static size_t setting_type_default_size(settings_type_t t, const setting_entry_t *e)
+{
+    switch (t) {
+    case SETTING_TYPE_UINT32: return sizeof(uint32_t);
+    case SETTING_TYPE_UINT16: return sizeof(uint16_t);
+    case SETTING_TYPE_FLOAT:  return sizeof(float);
+    case SETTING_TYPE_DOUBLE: return sizeof(double);
+    case SETTING_TYPE_STRING: return (e && e->max_str_size) ? e->max_str_size : 0;
+    case SETTING_TYPE_BLOB:   return (e && e->max_str_size) ? e->max_str_size : 0; // interpret max_str_size as max blob bytes
+    default:                  return 0;
+    }
+}
+
+/**
+ * @brief Build a cJSON payload for a setting entry
+ * 
+ * @param e Pointer to the setting_entry_t structure
+ * @param ns NVS namespace
+ * @param[out] msg_out Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return cJSON* representing the setting payload, or NULL on failure
+ *
+ * Caller owns returned cJSON* and must cJSON_Delete().
+ */
+static cJSON *build_setting_payload_json(const setting_entry_t *e,
+                                         const char *ns,
+                                         setting_update_msg_t *msg_out)
+{
+    if (!e || !e->key || !ns) {
+        if (msg_out) set_result(msg_out, ESP_ERR_INVALID_ARG, "Invalid args");
+        return NULL;
+    }
+
+    cJSON *payload = cJSON_CreateObject();
+    if (!payload) {
+        if (msg_out) set_result(msg_out, ESP_ERR_NO_MEM, "No memory for JSON payload");
+        return NULL;
+    }
+
+    // Always include type + size (even if value missing)
+    cJSON_AddNumberToObject(payload, "type", (int)e->type_t);
+    cJSON_AddNumberToObject(payload, "max_size", (int)setting_type_default_size(e->type_t, e));
+
+    esp_err_t err = ESP_OK;
+
+    switch (e->type_t) {
+    case SETTING_TYPE_UINT32: {
+        uint32_t v = 0;
+        err = nvs_read_uint32(ns, e->key, &v);
+        if (err == ESP_OK) {
+            // cJSON numbers are double; uint32 fits exactly up to 2^32-1? (not exactly for all values)
+            // For safety, store as number if you know values stay small, or store as string.
+            // We'll store as number (common for intervals, flags, etc.).
+            cJSON_AddNumberToObject(payload, "value", (double)v);
+            cJSON_AddNumberToObject(payload, "size", (int)setting_type_default_size(e->type_t, e));
+        }
+        break;
+    }
+    case SETTING_TYPE_UINT16: {
+        uint16_t v = 0;
+        err = nvs_read_uint16(ns, e->key, &v);
+        if (err == ESP_OK) {
+            cJSON_AddNumberToObject(payload, "value", (double)v);
+            cJSON_AddNumberToObject(payload, "size", (int)setting_type_default_size(e->type_t, e));
+        }
+        break;
+    }
+    case SETTING_TYPE_STRING: {
+        char *s = NULL;
+        err = nvs_read_string(ns, e->key, &s); // allocates; you must free(s)
+        if (err == ESP_OK) {
+            if (!s) {
+                // Unexpected but handle
+                cJSON_AddStringToObject(payload, "value", "");
+            } else {
+                // Optionally enforce max_str_size at read time (truncate)
+                if (e->max_str_size > 0 && strlen(s) >= e->max_str_size) {
+                    // truncate in-place safely
+                    s[e->max_str_size - 1] = '\0';
+                }
+                cJSON_AddStringToObject(payload, "value", s);
+                cJSON_AddNumberToObject(payload, "size", (int)strlen(s) + 1); // include null terminator
+            }
+            free(s);
+        }
+        break;
+    }
+    case SETTING_TYPE_FLOAT: {
+        float v = 0;
+        err = nvs_read_float(ns, e->key, &v);   // if you have this wrapper
+        if (err == ESP_OK) {
+            cJSON_AddNumberToObject(payload, "value", (double)v);
+            cJSON_AddNumberToObject(payload, "size", (int)setting_type_default_size(e->type_t, e));
+        }
+        break;
+    }
+    case SETTING_TYPE_DOUBLE: {
+        double v = 0;
+        err = nvs_read_double(ns, e->key, &v);  // if you have this wrapper
+        if (err == ESP_OK) {
+            cJSON_AddNumberToObject(payload, "value", v);
+            cJSON_AddNumberToObject(payload, "size", (int)setting_type_default_size(e->type_t, e));
+        }
+        break;
+    }
+    default:
+        err = ESP_ERR_NOT_SUPPORTED;
+        break;
+    }
+
+    if (err != ESP_OK) {
+        // If key missing in NVS, you might decide to return value=null but still succeed.
+        // Here we treat any read failure as failure; easy to adjust.
+        if (msg_out) set_result(msg_out, err, "Failed to read '%s': %s", e->key, esp_err_to_name(err));
+        cJSON_Delete(payload);
+        return NULL;
+    }
+
+    if (msg_out) set_result(msg_out, ESP_OK, "OK");
+    return payload;
+}
+
+/**
+ * @brief Return cJSON object: { "<key>": { "value":..., "type":..., "size":... } }
+ * 
+ * @param key Setting key
+ * @param[out] msg_out Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return cJSON* or NULL if key not found or read failed.
+ *
+ * Caller owns returned cJSON* and must cJSON_Delete().
+ */
+cJSON *get_setting_value_JSON(const char *key, setting_update_msg_t *msg_out)
+{
+    if (!key) {
+        if (msg_out) set_result(msg_out, ESP_ERR_INVALID_ARG, "Key is NULL");
+        return NULL;
+    }
+
+    const setting_entry_t *e = find_setting(key);
+    if (!e) {
+        if (msg_out) set_result(msg_out, ESP_ERR_NOT_FOUND, "Setting '%s' not found", key);
+        return NULL; // per your requirement
+    }
+
+    cJSON *payload = build_setting_payload_json(e, S_NAMESPACE, msg_out);
+    if (!payload) {
+        // msg_out already filled
+        return NULL;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        cJSON_Delete(payload);
+        if (msg_out) set_result(msg_out, ESP_ERR_NO_MEM, "No memory for JSON root");
+        return NULL;
+    }
+
+    // root["key"] = payload
+    cJSON_AddItemToObject(root, key, payload);
+    return root;
+}
+
+/**
+ * @brief Return:
+ * {
+ *   "total": <total settings>,
+ *   "data": {
+ *      "<key1>": {..payload..},
+ *      "<key2>": {..payload..}
+ *   }
+ * }
+ * @param[out] msg_out Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return cJSON* or NULL if no settings found/read failed.
+ * 
+ * Caller owns returned cJSON* and must cJSON_Delete().
+ */
+cJSON *get_all_settings_value_JSON(setting_update_msg_t *msg_out)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        if (msg_out) set_result(msg_out, ESP_ERR_NO_MEM, "No memory for JSON root");
+        return NULL;
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    if (!data) {
+        cJSON_Delete(root);
+        if (msg_out) set_result(msg_out, ESP_ERR_NO_MEM, "No memory for JSON data");
+        return NULL;
+    }
+
+    cJSON_AddItemToObject(root, "data", data);
+
+    int total = 0;
+
+    // Iterate your table
+    extern const setting_entry_t s_settings[];
+    extern const size_t s_settings_count; // define this in settings.c
+
+    for (size_t i = 0; i < s_settings_count; i++) {
+        const setting_entry_t *e = &s_settings[i];
+        if (!e->key) continue;
+
+        setting_update_msg_t tmp = {0};
+        cJSON *payload = build_setting_payload_json(e, S_NAMESPACE, &tmp);
+
+        // Decide policy:
+        // - If a setting is absent/unreadable, you can skip it, or include it with value=null.
+        // Here we skip unreadable ones but still count total settings in table.
+        total++;
+
+        if (!payload) {
+            // Optional: include failure info in output instead of skipping:
+            // cJSON *fail = cJSON_CreateObject();
+            // cJSON_AddNullToObject(fail, "value");
+            // cJSON_AddNumberToObject(fail, "type", (int)e->type_t);
+            // cJSON_AddNumberToObject(fail, "size", (int)setting_type_default_size(e->type_t, e));
+            // cJSON_AddStringToObject(fail, "error", tmp.msg[0] ? tmp.msg : "read failed");
+            // cJSON_AddItemToObject(data, e->key, fail);
+            continue;
+        }
+
+        cJSON_AddItemToObject(data, e->key, payload);
+    }
+
+    cJSON_AddNumberToObject(root, "total", total);
+
+    if (msg_out) set_result(msg_out, ESP_OK, "OK");
+    return root;
+}
 
 /** Settings update handlers **/
 

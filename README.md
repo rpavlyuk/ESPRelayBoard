@@ -42,6 +42,7 @@ The device supports two types of units:
 - **Web Interface**: Provides a web-based user interface for configuration, control and monitoring.
 - **Web API**: Simple JSON API is in place should you want to integrate the device into your custom infractucture projects.
 - **OTA (over the air) Firmware Update**: Trigger firmware update via WEB interface from a provided URL.
+- **Remote/Network Logging**: The device supports remote logging using the Syslog protocol (RFC 3164 / RFC 5424) over UDP or TCP
 
 ## Prerequisites
 To get started, you will need:
@@ -343,7 +344,205 @@ The device is exposing a simple JSON API to control relays and get units informa
 	}
 }
  ```
-
+4. **Get device settings (all):**
+ * Endpoint: `/api/setting/get/all`
+ * Method: GET
+ * Request params (GET):
+   * `device_id`
+   * `device_serial`
+ * Request payload (example): N/A
+ * Response payload (example):
+ ```
+{
+    "data": {
+        "ota_update_url": {
+            "type": 2,
+            "max_size": 256,
+            "value": "http://localhost:8080/ota/relayboard.bin",
+            "size": 41
+        },
+        "ha_upd_intervl": {
+            "type": 0,
+            "max_size": 4,
+            "value": 60000,
+            "size": 4
+        },
+        "mqtt_connect": {
+            "type": 1,
+            "max_size": 2,
+            "value": 2,
+            "size": 2
+        },
+        "mqtt_server": {
+            "type": 2,
+            "max_size": 128,
+            "value": "192.168.1.2",
+            "size": 12
+        },
+        "mqtt_port": {
+            "type": 1,
+            "max_size": 2,
+            "value": 1883,
+            "size": 2
+        },
+        "mqtt_protocol": {
+            "type": 2,
+            "max_size": 10,
+            "value": "mqtt",
+            "size": 5
+        },
+        "mqtt_user": {
+            "type": 2,
+            "max_size": 64,
+            "value": "",
+            "size": 1
+        },
+        "mqtt_password": {
+            "type": 2,
+            "max_size": 64,
+            "value": "",
+            "size": 1
+        },
+        "mqtt_prefix": {
+            "type": 2,
+            "max_size": 128,
+            "value": "relay_board",
+            "size": 12
+        },
+        "ha_prefix": {
+            "type": 2,
+            "max_size": 128,
+            "value": "homeassistant",
+            "size": 14
+        },
+        "relay_refr_int": {
+            "type": 1,
+            "max_size": 2,
+            "value": 1000,
+            "size": 2
+        },
+        "relay_ch_count": {
+            "type": 1,
+            "max_size": 2,
+            "value": 2,
+            "size": 2
+        },
+        "relay_sn_count": {
+            "type": 1,
+            "max_size": 2,
+            "value": 1,
+            "size": 2
+        },
+        "net_log_type": {
+            "type": 1,
+            "max_size": 2,
+            "value": 2,
+            "size": 2
+        },
+        "net_log_host": {
+            "type": 2,
+            "max_size": 256,
+            "value": "127.0.0.1",
+            "size": 12
+        },
+        "net_log_port": {
+            "type": 1,
+            "max_size": 2,
+            "value": 5114,
+            "size": 2
+        },
+        "net_log_stdout": {
+            "type": 1,
+            "max_size": 2,
+            "value": 1,
+            "size": 2
+        }
+    },
+    "total": 17
+}
+ ```
+5. **Get device settings (selected one):**
+ * Endpoint: `/api/setting/get`
+ * Method: GET
+ * Request params (GET):
+   * `device_id`
+   * `device_serial`
+   * `key`: Setting key (see `main/settings.h` for keys reference)
+ * Request payload (example): N/A
+ * Response payload (example):
+ ```
+ {
+  "mqtt_server": {
+      "type": 2,
+      "max_size": 128,
+      "value": "192.168.1.5",
+      "size": 12
+  }
+}
+ ```
+ 6. **Set device setting(s):**
+ * Endpoint: `/api/setting/update`
+ * Method: POST
+ * Request payload (example):
+ ```
+{
+    "device_id": "9XXE6E0MMC5C",
+    "device_serial": "VU7303USWVEP6ENQ3POTTFHVV7JH97QX",
+    "data": {
+        "mqtt_server":        "192.168.1.5",
+        "mqtt_port":        1883
+    },
+    "action": 0
+}
+ ```
+ * Response payload (example):
+ ```
+{
+    "status": {
+        "success": 2,
+        "failed": 0,
+        "total": 2
+    },
+    "details": {
+        "mqtt_server": {
+            "old_value": "192.168.1.2",
+            "new_value": "192.168.1.5",
+            "status": 0,
+            "error_msg": "Updated setting 'mqtt_server' (was 192.168.1.2)"
+        },
+        "mqtt_port": {
+            "old_value": "8883",
+            "new_value": "1883",
+            "status": 0,
+            "error_msg": "Updated setting 'mqtt_port' (was 8883)"
+        }
+    }
+}
+ ```
+7. **Forcing device reboot via API:**
+ * Endpoint: `/api/setting/update`
+ * Method: POST
+ * Request payload (example):
+ ```
+{
+    "device_id": "9XXE6E0MMC5C",
+    "device_serial": "VU7303USWVEP6ENQ3POTTFHVV7JH97QX",
+    "data": {
+    },
+    "action": 2
+}
+ ```
+ * Response payload (example):
+ ```
+ {
+    "status": {
+        "success": 0,
+        "failed": 0,
+        "total": 0
+    },
+    "details": {}
+}
+ ```
 
 ## Known issues, problems and TODOs:
 * Static IP support needed
@@ -351,7 +550,9 @@ The device is exposing a simple JSON API to control relays and get units informa
 
 
 ## License and Credits
-* GPLv3 -- you're free to use and modify the code, and make your over better ESP32 relay board :)
-* Uses [ESP32_NVS](https://github.com/VPavlusha/ESP32_NVS) library by [VPavlusha](https://github.com/VPavlusha)
+* GPLv3 -- you're free to use and modify the code or its parts, and thus make your over better ESP32 relay board :)
+* Uses:
+  * [ESP32_NVS](https://github.com/VPavlusha/ESP32_NVS) library by [VPavlusha](https://github.com/VPavlusha)🇺🇦
+  * [esp-idf-net-logging](https://github.com/nopnop2002/esp-idf-net-logging) library by [nopnop2002](https://github.com/nopnop2002)🇯🇵
 * Consider putting a star if you like the project
 * Find me at roman.pavlyuk@gmail.com

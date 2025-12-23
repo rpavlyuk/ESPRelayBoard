@@ -1,6 +1,8 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+#include "cJSON.h"
+
 #include "esp_http_client.h"
 #include "common.h"
 #include "mqtt.h"
@@ -118,7 +120,7 @@
 /**
  * Settings handlers and structures
  */
-
+// The longest of all string settings, except CA certificates
 #define OLD_VALUE_STR_MAX_LEN    256
 
 typedef enum {
@@ -319,5 +321,27 @@ void system_reboot_task(void *param);
  * @brief: Setup network logging
  */
 esp_err_t setup_remote_logging(void);
+
+/**
+ * @brief: Get default size for a setting type
+ */
+static size_t setting_type_default_size(settings_type_t t, const setting_entry_t *e);
+
+/**
+ * @brief: Build cJSON object for a setting: { "<key>": { "value":..., "type":..., "size":... } }
+ */
+static cJSON *build_setting_payload_json(const setting_entry_t *e,
+                                         const char *ns,
+                                         setting_update_msg_t *msg_out);
+
+/**
+ * @brief Return cJSON object: { "<key>": { "value":..., "type":..., "size":... } }.
+ */
+cJSON *get_setting_value_JSON(const char *key, setting_update_msg_t *msg_out);
+
+/** 
+ * @brief Return cJSON object with all settings and their values 
+ */
+cJSON *get_all_settings_value_JSON(setting_update_msg_t *msg_out);
 
 #endif

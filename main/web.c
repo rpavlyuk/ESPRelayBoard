@@ -179,6 +179,25 @@ void run_http_server(void *param) {
         // Register the setting update URI handler
         httpd_register_uri_handler(server, &setting_update_uri);
 
+        httpd_uri_t setting_get_all_uri = {
+            .uri      = "/api/setting/get/all",  // URL endpoint
+            .method   = HTTP_GET,       // HTTP method
+            .handler  = get_settings_all_handler, // Function to handle the request
+            .user_ctx = NULL            // User context, if needed
+        };
+
+        // Register the setting update URI handler
+        httpd_register_uri_handler(server, &setting_get_all_uri);
+
+        httpd_uri_t setting_get_one_uri = {
+            .uri      = "/api/setting/get",
+            .method   = HTTP_GET,
+            .handler  = get_setting_one_handler,
+            .user_ctx = NULL
+        };
+
+        httpd_register_uri_handler(server, &setting_get_one_uri);
+
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -352,7 +371,7 @@ void url_decode(char *src) {
 }
 
 /**
- * @brief Extracts the value of a specified parameter from a buffer.
+ * @brief Extracts the value of a specified parameter from a buffer (POST request).
  *
  * This function searches for a parameter name within a given buffer and extracts its corresponding value.
  * The extracted value is then stored in the provided output buffer.
@@ -383,6 +402,112 @@ int extract_param_value(const char *buf, const char *param_name, char *output, s
         return 0;  // Return 0 length when not found
     }
 }
+
+/**
+ * @brief Retrieves the value of a GET query parameter from an HTTP request.
+ *
+ * This function extracts the value of a specified query parameter from the URL of an HTTP request.
+ * It allocates memory for the query string, retrieves it, and then searches for the specified parameter.
+ * The extracted value is stored in the provided output buffer.
+ *
+ * @param req Pointer to the HTTP request structure.
+ * @param name The name of the query parameter to retrieve.
+ * @param out Buffer where the extracted parameter value will be stored.
+ * @param out_sz Size of the output buffer.
+ * @return ESP_OK if the parameter is found and extracted successfully,
+ *         ESP_ERR_NOT_FOUND if the parameter is not found,
+ *         ESP_ERR_INVALID_ARG if any argument is invalid,
+ *         ESP_ERR_NO_MEM if memory allocation fails.
+ */
+static esp_err_t extract_param_value_from_get_query(httpd_req_t *req,
+                                     const char *name,
+                                     char *out,
+                                     size_t out_sz)
+{
+    if (!req || !name || !out || out_sz == 0) return ESP_ERR_INVALID_ARG;
+
+    out[0] = '\0';
+
+    size_t qlen = httpd_req_get_url_query_len(req);
+    if (qlen == 0) return ESP_ERR_NOT_FOUND;
+
+    char *q = malloc(qlen + 1);
+    if (!q) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = httpd_req_get_url_query_str(req, q, qlen + 1);
+    if (err != ESP_OK) {
+        free(q);
+        return err;
+    }
+
+    err = httpd_query_key_value(q, name, out, out_sz);
+    free(q);
+
+    return err; // ESP_OK or ESP_ERR_NOT_FOUND
+}
+
+
+/**
+ * @brief Validates device identity from HTTP request query parameters.
+ *
+ * This function extracts the 'device_id' and 'device_serial' parameters from the HTTP request's query string
+ * and compares them with the values stored in NVS (Non-Volatile Storage). If the values match, the function
+ * returns ESP_OK; otherwise, it sends an appropriate HTTP error response and returns ESP_FAIL.
+ *
+ * @param req Pointer to the HTTP request structure.
+ * @return ESP_OK if the device identity is valid, ESP_FAIL otherwise.
+ */
+static esp_err_t validate_device_identity_from_get_query(httpd_req_t *req)
+{
+    char device_id_in[DEVICE_ID_LENGTH + 1];
+    char device_serial_in[DEVICE_SERIAL_LENGTH + 1];
+
+    esp_err_t err;
+
+    err = extract_param_value_from_get_query(req, "device_id", device_id_in, sizeof(device_id_in));
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing device_id");
+        return ESP_FAIL;
+    }
+
+    err = extract_param_value_from_get_query(req, "device_serial", device_serial_in, sizeof(device_serial_in));
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing device_serial");
+        return ESP_FAIL;
+    }
+
+    char *device_id_nvs = NULL;
+    char *device_serial_nvs = NULL;
+
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id_nvs);
+    if (err != ESP_OK || !device_id_nvs) {
+        free(device_id_nvs);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_id from NVS");
+        return ESP_FAIL;
+    }
+
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs);
+    if (err != ESP_OK || !device_serial_nvs) {
+        free(device_id_nvs);
+        free(device_serial_nvs);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_serial from NVS");
+        return ESP_FAIL;
+    }
+
+    bool ok = (strcmp(device_id_in, device_id_nvs) == 0) &&
+              (strcmp(device_serial_in, device_serial_nvs) == 0);
+
+    free(device_id_nvs);
+    free(device_serial_nvs);
+
+    if (!ok) {
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Device ID or serial mismatch");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
 
 /**
  * @brief Converts a cJSON value to its string representation.
@@ -1648,7 +1773,6 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-
 /**
  * @brief Handler for /api/setting/update endpoint
  *
@@ -1817,6 +1941,29 @@ static esp_err_t set_setting_value_post_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(resp_status, "failed",  failure_count);
     cJSON_AddNumberToObject(resp_status, "total",   total_count);
 
+    // now, lets process the action if any
+    bool reboot_required = false;
+    cJSON *action_item = cJSON_GetObjectItem(json_request, "action");
+    if (action_item != NULL && cJSON_IsNumber(action_item)) {
+        int action_code = action_item->valueint;
+        if (action_code == 2) {
+            // force reboot
+            reboot_required = true;
+            // notify in the response
+            ESP_LOGW(TAG, "Settings update: Reboot required due to action code 2 (force reboot even on errors)");
+        } else if (action_code == 1) {
+            // reboot if no errors
+            if (failure_count == 0) {
+                reboot_required = true;
+                ESP_LOGI(TAG, "Settings update: Reboot required due to action code 1 (reboot if no errors)");
+            } else {
+                ESP_LOGW(TAG, "Settings update: Reboot requested but not possible due to action code 1 (errors detected)");
+            }
+        } else {
+            ESP_LOGI(TAG, "Settings update: No reboot action requested (action code 0)");
+        }
+    }
+
     // Serialize and send
     char *resp_str = cJSON_PrintUnformatted(resp_root);
     if (!resp_str) {
@@ -1831,6 +1978,12 @@ static esp_err_t set_setting_value_post_handler(httpd_req_t *req) {
     cJSON_free(resp_str);
     cJSON_Delete(resp_root);
     cJSON_Delete(json_request);
+
+    if (reboot_required)
+    {
+        ESP_LOGW(TAG, "Settings update: Rebooting device as per request...");
+        system_reboot(); // calling safe reboot function
+    }
 
     return ESP_OK;
     /**
@@ -1852,6 +2005,115 @@ static esp_err_t set_setting_value_post_handler(httpd_req_t *req) {
         }   
      */
 }   
+
+/**
+ * @brief Handler for /api/setting/get/all endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
+static esp_err_t get_settings_all_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Processing get all settings web request");
+
+    // 1) validate device identity via query args
+    if (validate_device_identity_from_get_query(req) != ESP_OK) {
+        // validate_device_identity_from_get_query already sent HTTP error response
+        return ESP_FAIL;
+    }
+
+    // 2) build settings JSON
+    setting_update_msg_t msg = {0};
+    cJSON *root = get_all_settings_value_JSON(&msg);
+    if (!root) {
+        ESP_LOGE(TAG, "Failed to build settings JSON: %s (%s)",
+                 msg.msg[0] ? msg.msg : "unknown",
+                 esp_err_to_name(msg.err_code));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to build settings JSON");
+        return ESP_FAIL;
+    }
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to serialize JSON");
+        return ESP_FAIL;
+    }
+
+    // 3) send response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
+
+    cJSON_free(json_str);
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for /api/setting/get?key= endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
+static esp_err_t get_setting_one_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Processing get single setting web request");
+
+    // 1) Validate device identity (device_id + device_serial in query string)
+    if (validate_device_identity_from_get_query(req) != ESP_OK) {
+        return ESP_FAIL; // helper already sent response
+    }
+
+    // 2) Extract 'key' parameter
+    char key[64];
+    esp_err_t err = extract_param_value_from_get_query(req, "key", key, sizeof(key));
+    if (err != ESP_OK || key[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing key");
+        return ESP_FAIL;
+    }
+
+    // Optional hardening: only allow safe characters in key
+    // (prevents weird injection into logs / filenames if you ever use key elsewhere)
+    for (const char *p = key; *p; p++) {
+        const char c = *p;
+        const bool ok =
+            (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            (c == '_') || (c == '-');
+        if (!ok) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid key format");
+            return ESP_FAIL;
+        }
+    }
+
+    // 3) Build JSON for that setting
+    setting_update_msg_t msg = {0};
+    cJSON *root = get_setting_value_JSON(key, &msg);
+    if (!root) {
+        // As you specified: if key not found -> NULL
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
+                           msg.msg[0] ? msg.msg : "Setting not found");
+        return ESP_FAIL;
+    }
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to serialize JSON");
+        return ESP_FAIL;
+    }
+
+    // 4) Send response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
+
+    cJSON_free(json_str);
+    return ESP_OK;
+}
 
 /**
  * @brief Handler for /api/status endpoint
