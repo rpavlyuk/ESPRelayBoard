@@ -198,6 +198,15 @@ void run_http_server(void *param) {
 
         httpd_register_uri_handler(server, &setting_get_one_uri);
 
+        httpd_uri_t get_ca_cert_uri = {
+            .uri      = "/api/cert/get",
+            .method   = HTTP_GET,
+            .handler  = get_ca_certificate_handler,
+            .user_ctx = NULL
+        };
+
+        httpd_register_uri_handler(server, &get_ca_cert_uri);
+
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -607,12 +616,19 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     }
 
     // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_LARGE_TEMPLATE_SIZE, f);
+    size_t len = fread(html_template, 1, buf_size - 1, f);
+    if (len == buf_size - 1 && !feof(f)) {
+        ESP_LOGE(TAG, "config.html too large (>%u bytes)", (unsigned)(buf_size - 1));
+        fclose(f);
+        free(mem);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     fclose(f);
     html_template[len] = '\0';  // Null-terminate the string
 
     // Copy template into html_output for modification
-    strcpy(html_output, html_template);
+    strlcpy(html_output, html_template, buf_size);
 
     // Allocate memory for the strings you will retrieve from NVS
     char *mqtt_server = NULL;
@@ -660,27 +676,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_PORT, &net_log_port));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_KEEP_STDOUT, &net_log_stdout));
 
-    // Load MQTTS CA certificate
-    char *ca_cert_mqtts = NULL;
-    if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
-        if (mem) free(mem);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    } else {
-        ESP_LOGD(TAG, "Loaded MQTTS CA certificate: %s", (ca_cert_mqtts == NULL) ? "NULL" : ca_cert_mqtts);
-    }
-    // Load HTTPS CA certificate
-    char *ca_cert_https = NULL;
-    if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
-        if (mem) free(mem);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    } else {
-        ESP_LOGD(TAG, "Loaded HTTPS CA certificate: %s", (ca_cert_https == NULL) ? "NULL" : ca_cert_https);
-    }
-
     // Replace placeholders in the template with actual values
     char mqtt_port_str[6];
     char ha_upd_intervl_str[10];
@@ -714,8 +709,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_MESSAGE}", message);
     replace_placeholder(html_output, "{VAL_HA_UPDATE_INTERVAL}", ha_upd_intervl_str);
     replace_placeholder(html_output, "{VAL_MQTT_CONNECT}", mqtt_connect_str);
-    replace_placeholder(html_output, "{VAL_CA_CERT_MQTTS}", ca_cert_mqtts);
-    replace_placeholder(html_output, "{VAL_CA_CERT_HTTPS}", ca_cert_https);
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
@@ -744,8 +737,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     free(ha_prefix);
     free(device_id);
     free(device_serial);
-    free(ca_cert_mqtts);
-    free(ca_cert_https);
     free(ota_update_url);
     free(net_log_host);
 
@@ -977,29 +968,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_PORT, &net_log_port));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_KEEP_STDOUT, &net_log_stdout));
 
-    // Load MQTTS CA certificate
-    char *ca_cert_mqtts = NULL;
-    if (load_ca_certificate(&ca_cert_mqtts, CA_CERT_PATH_MQTTS) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load MQTTS CA certificate from %s", CA_CERT_PATH_MQTTS);
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    } else {
-        ESP_LOGD(TAG, "Loaded MQTTS CA certificate: %s", (ca_cert_mqtts == NULL) ? "NULL" : ca_cert_mqtts);
-    }
-    // Load HTTPS CA certificate
-    char *ca_cert_https = NULL;
-    if (load_ca_certificate(&ca_cert_https, CA_CERT_PATH_HTTPS) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to load HTTPS CA certificate from %s", CA_CERT_PATH_HTTPS);
-        if (html_template) free(html_template);
-        if (html_output) free(html_output);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    } else {
-        ESP_LOGD(TAG, "Loaded HTTPS CA certificate: %s", (ca_cert_https == NULL) ? "NULL" : ca_cert_https);
-    }
-
     // Replace placeholders in the template with actual values
     snprintf(mqtt_port_str, sizeof(mqtt_port_str), "%u", mqtt_port);
     snprintf(ha_upd_intervl_str, sizeof(ha_upd_intervl_str), "%li", (uint32_t) ha_upd_intervl);
@@ -1026,8 +994,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_MESSAGE}", success_message);
     replace_placeholder(html_output, "{VAL_HA_UPDATE_INTERVAL}", ha_upd_intervl_str);
     replace_placeholder(html_output, "{VAL_MQTT_CONNECT}", mqtt_connect_str);
-    replace_placeholder(html_output, "{VAL_CA_CERT_MQTTS}", ca_cert_mqtts);
-    replace_placeholder(html_output, "{VAL_CA_CERT_HTTPS}", ca_cert_https);
     replace_placeholder(html_output, "{VAL_RELAY_REFRESH_INTERVAL}", relay_refr_int_str);
     replace_placeholder(html_output, "{VAL_RELAY_CHANNEL_COUNT}", relay_ch_count_str);
     replace_placeholder(html_output, "{VAL_CONTACT_SENSORS_COUNT}", relay_sn_count_str);
@@ -1057,8 +1023,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     free(ha_prefix);
     free(device_id);
     free(device_serial);
-    free(ca_cert_mqtts);
-    free(ca_cert_https);
     free(ota_update_url);
     free(net_log_host);
 
@@ -2495,6 +2459,176 @@ esp_err_t reset_post_handler(httpd_req_t *req) {
 
     return ret;
 }
+
+/**
+ * @brief Handler for /api/cert/get endpoint
+ *
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
+static esp_err_t get_ca_certificate_handler(httpd_req_t *req) {
+
+    // Prepare JSON response root early (so every path returns consistent JSON)
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        // If even cJSON can't allocate, fall back to plain text 500
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, "OOM: failed to allocate JSON object");
+        return ESP_FAIL;
+    }
+
+    // Defaults
+    cJSON_AddStringToObject(root, "cert", "");
+    cJSON_AddStringToObject(root, "type", "");
+    cJSON_AddNumberToObject(root, "size", 0);
+    cJSON_AddNumberToObject(root, "status", 0);
+    cJSON_AddStringToObject(root, "msg", "");
+
+    esp_err_t err = ESP_OK;
+
+    // 1) Validate device identity (expects device_id & device_serial in query)
+    err = validate_device_identity_from_get_query(req);
+    if (err != ESP_OK) {
+        cJSON_ReplaceItemInObject(root, "status", cJSON_CreateNumber((double)err));
+        cJSON_ReplaceItemInObject(root, "msg", cJSON_CreateString("Device identity validation failed"));
+
+        char *out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        if (!out) {
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "text/plain");
+            httpd_resp_sendstr(req, "OOM: failed to serialize JSON");
+            return ESP_FAIL;
+        }
+
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+        free(out);
+        return ESP_OK;
+    }
+
+    // 2) Extract ca_type
+    char ca_type[8] = {0}; // "https" or "mqtts"
+    err = extract_param_value_from_get_query(req, "ca_type", ca_type, sizeof(ca_type));
+    if (err != ESP_OK || ca_type[0] == '\0') {
+        cJSON_ReplaceItemInObject(root, "status", cJSON_CreateNumber((double)err));
+        cJSON_ReplaceItemInObject(root, "msg", cJSON_CreateString("missing or invalid ca_type"));
+
+        char *out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        if (!out) {
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "text/plain");
+            httpd_resp_sendstr(req, "OOM: failed to serialize JSON");
+            return ESP_FAIL;
+        }
+
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+        free(out);
+        return ESP_OK;
+    }
+
+    // 3) Map ca_type -> cert path
+    const char *cert_type = NULL;
+    const char *cert_path = NULL;
+
+    if (strcmp(ca_type, "https") == 0) {
+        cert_type = "https";
+        cert_path = CA_CERT_PATH_HTTPS;
+    } else if (strcmp(ca_type, "mqtts") == 0) {
+        cert_type = "mqtts";
+        cert_path = CA_CERT_PATH_MQTTS;
+    } else {
+        cJSON_ReplaceItemInObject(root, "status", cJSON_CreateNumber(3));
+        cJSON_ReplaceItemInObject(root, "msg", cJSON_CreateString("ca_type must be 'https' or 'mqtts'"));
+
+        char *out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        if (!out) {
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "text/plain");
+            httpd_resp_sendstr(req, "OOM: failed to serialize JSON");
+            return ESP_FAIL;
+        }
+
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+        free(out);
+        return ESP_OK;
+    }
+
+    // 4) Load certificate (allocated by load_ca_certificate; must free)
+    char *cert = NULL;
+    err = load_ca_certificate(&cert, cert_path);
+    if (err != ESP_OK || cert == NULL) {
+        ESP_LOGW(TAG, "Failed to load CA cert type=%s (err=0x%x)", cert_type, (unsigned)err);
+
+        cJSON_ReplaceItemInObject(root, "type", cJSON_CreateString(cert_type));
+        cJSON_ReplaceItemInObject(root, "status", cJSON_CreateNumber(4));
+        cJSON_ReplaceItemInObject(root, "msg", cJSON_CreateString("failed to load certificate"));
+
+        char *out = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        if (!out) {
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "text/plain");
+            httpd_resp_sendstr(req, "OOM: failed to serialize JSON");
+            return ESP_FAIL;
+        }
+
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+        free(out);
+
+        if (cert) {
+            free(cert);
+        }
+        return ESP_OK;
+    }
+
+    // 5) Build success JSON
+    const size_t cert_len = strlen(cert);
+
+    cJSON_ReplaceItemInObject(root, "type", cJSON_CreateString(cert_type));
+    cJSON_ReplaceItemInObject(root, "size", cJSON_CreateNumber((double)cert_len));
+    cJSON_ReplaceItemInObject(root, "cert", cJSON_CreateString(cert)); // cJSON will escape newlines properly
+
+    // status=0 and msg="" already set
+
+    // 6) Serialize and respond
+    char *out = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!out) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, "OOM: failed to serialize JSON");
+
+        free(cert);
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+
+    free(out);
+    free(cert);
+
+    return ESP_OK;
+}
+
+/** Server routines */
 
 /**
  * @brief Stop the HTTP server

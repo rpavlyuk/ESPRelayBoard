@@ -231,6 +231,7 @@
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
       function confirmReset(message) {
         return confirm(message);
@@ -246,5 +247,83 @@
       selectElement('net_log_type', '{VAL_NET_LOGGING_TYPE}');
       selectElement('net_log_stdout', '{VAL_NET_LOGGING_KEEP_STDOUT}');
     </script>
+    <script>
+    $(function () {
+
+        const deviceId     = "{VAL_DEVICE_ID}";
+        const deviceSerial = "{VAL_DEVICE_SERIAL}";
+
+        // Track whether certs were already loaded
+        const certLoaded = {
+            mqtts: false,
+            https: false
+        };
+
+        function getTextarea(caType) {
+            return (caType === "mqtts")
+                ? $("#ca_cert_mqtts_id")
+                : $("#ca_cert_https_id");
+        }
+
+        function loadCaCert(caType, doneCb) {
+            if (certLoaded[caType]) {
+                if (doneCb) doneCb();
+                return;
+            }
+
+            const $textarea = getTextarea(caType);
+
+            $textarea
+                .prop("disabled", true)
+                .val("Loading " + caType.toUpperCase() + " CA certificate...");
+
+            $.ajax({
+                url: "/api/cert/get",
+                method: "GET",
+                dataType: "json",
+                data: {
+                    device_id: deviceId,
+                    device_serial: deviceSerial,
+                    ca_type: caType
+                },
+                timeout: 10000
+            })
+            .done(function (resp) {
+                if (resp && resp.status === 0 && typeof resp.cert === "string") {
+                    $textarea.val(resp.cert);
+                    certLoaded[caType] = true;
+                } else {
+                    const msg = (resp && resp.msg) ? resp.msg : "unknown error";
+                    $textarea.val(
+                        "ERROR: Failed to load " + caType.toUpperCase() +
+                        " CA certificate\n\n" + msg
+                    );
+                }
+            })
+            .fail(function (xhr, status) {
+                $textarea.val(
+                    "ERROR: Failed to load " + caType.toUpperCase() +
+                    " CA certificate\n\n" +
+                    "HTTP error: " + status
+                );
+            })
+            .always(function () {
+                $textarea.prop("disabled", false);
+                if (doneCb) doneCb();
+            });
+        }
+
+        /*
+        * Sequential load on page load:
+        *  1) MQTTS
+        *  2) HTTPS
+        */
+        loadCaCert("mqtts", function () {
+            loadCaCert("https");
+        });
+
+    });
+    </script>
+
 </body>
 </html>

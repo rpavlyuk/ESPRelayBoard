@@ -26,6 +26,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req);
 static esp_err_t set_setting_value_post_handler(httpd_req_t *req);
 static esp_err_t get_settings_all_handler(httpd_req_t *req);
 static esp_err_t get_setting_one_handler(httpd_req_t *req);
+static esp_err_t get_ca_certificate_handler(httpd_req_t *req);
 /**
  * @brief HTTP GET handler to return a JSON list of all relays and contact sensors.
  * 
