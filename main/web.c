@@ -584,8 +584,9 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     const char* message = "";
 
     // Prefer one big allocation to reduce fragmentation
-    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE;
-    const size_t total = buf_size * 2;
+    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE + 1;
+    // const size_t total = buf_size * 2;
+    const size_t total = buf_size;
 
     char *mem = (char *)malloc(total);
 
@@ -599,11 +600,10 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // Split memory into 2 regions
-    char *html_template    = mem;
-    char *html_output      = mem + buf_size;
+    // Assign pointers within the allocated block
+    char *html_output    = mem;
 
-    html_template[0] = '\0';
+    // html_template[0] = '\0';
     html_output[0] = '\0';
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
@@ -615,8 +615,8 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // Load the template into html_template
-    size_t len = fread(html_template, 1, buf_size - 1, f);
+    // Load the template into html_output
+    size_t len = fread(html_output, 1, buf_size - 1, f);
     if (len == buf_size - 1 && !feof(f)) {
         ESP_LOGE(TAG, "config.html too large (>%u bytes)", (unsigned)(buf_size - 1));
         fclose(f);
@@ -625,10 +625,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     fclose(f);
-    html_template[len] = '\0';  // Null-terminate the string
-
-    // Copy template into html_output for modification
-    strlcpy(html_output, html_template, buf_size);
+    html_output[len] = '\0'; // Null-terminate the string
 
     // Allocate memory for the strings you will retrieve from NVS
     char *mqtt_server = NULL;
@@ -776,8 +773,8 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     const char* success_message = "<div class=\"alert alert-primary alert-dismissible fade show\" role=\"alert\"> Parameters saved successfully. A device reboot might be required for the setting to come into effect.<button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button></div>";
     
     // Prefer one big allocation to reduce fragmentation
-    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE;
-    const size_t total = buf_size * 2;
+    const size_t buf_size = MAX_LARGE_TEMPLATE_SIZE + 1;
+    const size_t total = buf_size;
 
     char *mem = (char *)malloc(total);
 
@@ -791,11 +788,10 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // Split memory into 2 regions
-    char *html_template    = mem;
-    char *html_output      = mem + buf_size;
+    // Assign pointers within the allocated block
+    char *html_output      = mem;
 
-    html_template[0] = '\0';
+    // NULL-terminate the output buffer
     html_output[0] = '\0';
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
@@ -808,13 +804,17 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    // Load the template into html_output
+    size_t len = fread(html_output, 1, MAX_TEMPLATE_SIZE, f);
     fclose(f);
-    html_template[len] = '\0';  // Null-terminate the string
-
-    // Copy template into html_output for modification
-    strcpy(html_output, html_template);
+    if (len == buf_size - 1 && !feof(f)) {
+        ESP_LOGE(TAG, "config.html too large (>%u bytes)", (unsigned)(buf_size - 1));
+        free(mem);
+        mem = NULL;
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    html_output[len] = '\0'; // Null-terminate the string
 
     // Allocate memory for the strings you will retrieve from NVS
     // We need to pre-allocate memory as we are loading those values from POST request
@@ -1257,8 +1257,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing relays web request");
 
     // Prefer one big allocation to reduce fragmentation
-    const size_t buf_size = MAX_TEMPLATE_SIZE;
-    const size_t total = buf_size * 3;
+    const size_t buf_size = MAX_TEMPLATE_SIZE + 1;
+    const size_t total = buf_size * 2;
 
     char *mem = (char *)malloc(total);
     if (!mem) {
@@ -1267,16 +1267,14 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
                  (unsigned)esp_get_free_heap_size(),
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_sendstr(req, "Out of memory");
+        httpd_resp_sendstr(req, "ESP Device ran out of free memory");
         return ESP_FAIL;
     }
 
     // Split memory into 3 regions
-    char *html_template    = mem;
-    char *html_output      = mem + buf_size;
-    char *relays_list_html = mem + 2 * buf_size;
+    char *html_output    = mem;
+    char *relays_list_html = mem + buf_size;
 
-    html_template[0] = '\0';
     html_output[0] = '\0';
     relays_list_html[0] = '\0';
 
@@ -1284,38 +1282,39 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     // Populate the safe GPIO pins as a comma-separated list
     populate_safe_gpio_pins(safe_pins, sizeof(safe_pins));
 
-    char *relay_table_header = (char *)malloc(MAX_TBL_ENTRY_SIZE);
-    char *relay_table_entry_tpl = (char *)malloc(MAX_TBL_ENTRY_SIZE);
-    char *relay_table_entry = (char *)malloc(MAX_TBL_ENTRY_SIZE);
+    const size_t relay_table_entry_buf_size = MAX_TBL_ENTRY_SIZE + 1;
+    const size_t total_relay_table_mem = relay_table_entry_buf_size * 3;
 
-    if (html_template == NULL || html_output == NULL || relay_table_header == NULL || relay_table_entry_tpl == NULL || relay_table_entry == NULL) {
-        ESP_LOGE(TAG, "Memory allocation failed");
-        if (mem) free(mem);
-        mem = NULL;
-        if (relay_table_header) free(relay_table_header);
-        if (relay_table_entry_tpl) free(relay_table_entry_tpl);
-        if (relay_table_entry) free(relay_table_entry);
-        httpd_resp_send_500(req);
+    char *relay_table_mem = (char *)malloc(total_relay_table_mem);
+    if (!relay_table_mem) {
+        ESP_LOGE(TAG, "OOM: relays handler needs %u bytes (free=%u, min_free=%u)",
+                 (unsigned)total_relay_table_mem,
+                 (unsigned)esp_get_free_heap_size(),        
+                 (unsigned)esp_get_minimum_free_heap_size());
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "ESP Device ran out of free memory");
         return ESP_FAIL;
     }
+
+    char *relay_table_header = relay_table_mem;
+    char *relay_table_entry_tpl = relay_table_mem + relay_table_entry_buf_size;
+    char *relay_table_entry = relay_table_mem + 2 * relay_table_entry_buf_size;
 
     // Read the template from SPIFFS (assuming you're loading it from SPIFFS)
     FILE *f = fopen("/spiffs/relays.html", "r");
     if (f == NULL) {
         ESP_LOGE(TAG, "Failed to open relays template file for reading");
         free(mem);
-        free(relay_table_header);
-        free(relay_table_entry_tpl);
-        free(relay_table_entry);
+        free(relay_table_mem);
+        mem = NULL;
+        relay_table_mem = NULL;
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
     // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    size_t len = fread(html_output, 1, MAX_TEMPLATE_SIZE, f);
     fclose(f);
-    html_template[len] = '\0';  // Null-terminate the string
-    // Copy template into html_output for modification
-    strcpy(html_output, html_template);
+    html_output[len] = '\0';
 
     // Read the table header template from SPIFFS
     f = fopen("/spiffs/relay_table_header.html", "r");
@@ -1323,9 +1322,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Failed to open relays table header template file for reading");
         free(mem);
         mem = NULL;
-        free(relay_table_header);
-        free(relay_table_entry_tpl);
-        free(relay_table_entry);
+        free(relay_table_mem);
+        relay_table_mem = NULL;
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
@@ -1340,9 +1338,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Failed to open relays table entry template file for reading");
         free(mem);
         mem = NULL;
-        free(relay_table_header);
-        free(relay_table_entry_tpl);
-        free(relay_table_entry);
+        free(relay_table_mem);
+        relay_table_mem = NULL;
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
@@ -1508,9 +1505,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
     mem = NULL;
     free(device_id);
     free(device_serial);
-    free(relay_table_header);
-    free(relay_table_entry_tpl);
-    free(relay_table_entry);
+    free(relay_table_mem);
+    relay_table_mem = NULL;
 
     return ESP_OK;
 }
