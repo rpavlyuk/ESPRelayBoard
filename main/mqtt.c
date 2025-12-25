@@ -600,7 +600,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
             ESP_LOGW(TAG, "Topic %s not published", topic);
             is_error = true;
         }
-        cJSON_free(relay_json);
+        free(relay_json);
     } else {
         ESP_LOGW(TAG, "Get NULL when tried serialize_relay_unit(). Relay's JSON data will not be publised to MQTT.");
         is_error = true;
@@ -870,7 +870,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         }
 
         // Free allocated resources
-        cJSON_free(discovery_json);
+        free(discovery_json);
         free(relay_key);
         relay_key = NULL;
         ha_entity_discovery_free(entity_discovery);

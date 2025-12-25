@@ -558,7 +558,7 @@ static void json_value_to_string(const cJSON *v, char *out, size_t out_sz)
         char *tmp = cJSON_PrintUnformatted((cJSON *)v);
         if (tmp) {
             strlcpy(out, tmp, out_sz);
-            cJSON_free(tmp);
+            free(tmp);
         } else {
             strlcpy(out, "<unprintable>", out_sz);
         }
@@ -1728,8 +1728,8 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     // Clean up
     cJSON_Delete(json);
     cJSON_Delete(response);
-    cJSON_free(relay_json_str);
-    cJSON_free(response_str);
+    free(relay_json_str);
+    free(response_str);
     return ESP_OK;
 }
 
@@ -1935,7 +1935,7 @@ static esp_err_t set_setting_value_post_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
 
-    cJSON_free(resp_str);
+    free(resp_str);
     cJSON_Delete(resp_root);
     cJSON_Delete(json_request);
 
@@ -2005,7 +2005,7 @@ static esp_err_t get_settings_all_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
 
-    cJSON_free(json_str);
+    free(json_str);
     
     return ESP_OK;
 }
@@ -2071,7 +2071,7 @@ static esp_err_t get_setting_one_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
 
-    cJSON_free(json_str);
+    free(json_str);
     return ESP_OK;
 }
 
@@ -2100,7 +2100,7 @@ static esp_err_t status_data_handler(httpd_req_t *req) {
     httpd_resp_send(req, json_response, strlen(json_response));
 
     // Free allocated memory
-    cJSON_free(json_response);
+    free(json_response);
 
     return ESP_OK;
 }
@@ -2225,7 +2225,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to parse serialized relay");
             }
-            cJSON_free(serialized_relay);  // Free serialized relay string after usage
+            free(serialized_relay);  // Free serialized relay string after usage
         } else {
             ESP_LOGE(TAG, "Failed to serialize relay unit");
         }
@@ -2264,7 +2264,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
     esp_err_t ret = httpd_resp_send(req, json_response, strlen(json_response));
 
     // Clean up
-    cJSON_free(json_response);  // Free the generated JSON string
+    free(json_response);  // Free the generated JSON string
     cJSON_Delete(response);  // Free the root JSON object
 
     return ret;
