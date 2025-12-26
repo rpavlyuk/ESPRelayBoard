@@ -99,15 +99,17 @@
 
   // Expose only what the HTML needs to call from inline handlers
   window.RelayBoardStatus = window.RelayBoardStatus || {};
+  
   window.RelayBoardStatus.changeRelayState = function (relayKey, channel, isChecked) {
     isUpdating = true;
 
-    const cfg = window.RelayBoardStatusConfig || {};
-    const deviceSerial = cfg.deviceSerial || "";
+    const deviceId = window.RelayBoardStatus.deviceId || "";
+    const deviceSerial = window.RelayBoardStatus.deviceSerial || "";
 
     let payload = {
+      device_id: deviceId,
+      device_serial: deviceSerial,
       data: {
-        device_serial: deviceSerial,
         relay_key: relayKey,
         relay_channel: channel,
         relay_state: isChecked
@@ -132,8 +134,7 @@
 
   // Entry point
   $(document).ready(function () {
-    const cfg = window.RelayBoardStatusConfig || {};
-    const intervalMs = cfg.readIntervalMs || 5000;
+    const intervalMs = window.RelayBoardStatus.readIntervalMs || 5000;
 
     updateStatusData();
     loadRelays();

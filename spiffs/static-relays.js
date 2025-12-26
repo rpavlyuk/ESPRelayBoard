@@ -1,16 +1,22 @@
 // script-relays.js
+window.RelayBoardRelays = window.RelayBoardRelays || {};
 
 // 1) Update relay configuration
-function updateRelay(deviceSerial, relayKey, relayChannel, gpioPinFieldId, enabledFieldId, invertedFieldId) {
-          // Read values from the input fields
-          const gpioPinValue = parseInt(document.getElementById(gpioPinFieldId).value, 10);
-          const enabledValue = document.getElementById(enabledFieldId).checked;
-          const invertedValue = document.getElementById(invertedFieldId).checked;
+window.RelayBoardRelays.updateRelay = function(relayKey, relayChannel, gpioPinFieldId, enabledFieldId, invertedFieldId) {
+        // Read values from the input fields
+        const gpioPinValue = parseInt(document.getElementById(gpioPinFieldId).value, 10);
+        const enabledValue = document.getElementById(enabledFieldId).checked;
+        const invertedValue = document.getElementById(invertedFieldId).checked;
+
+        // Get device ID and serial from global config
+        const deviceSerial = window.RelayBoardRelays.deviceSerial || "";
+        const deviceId = window.RelayBoardRelays.deviceId || "";
       
           // Prepare the data to be sent in JSON format
           const relayData = {
+              device_id: deviceId,           // device_id can be left empty if not needed
+              device_serial: deviceSerial,             
               data: {
-                  device_serial: deviceSerial,
                   relay_key: relayKey,           // Add relay_key to the JSON data
                   relay_channel: relayChannel,
                   relay_gpio_pin: gpioPinValue,  // Send GPIO pin as a number

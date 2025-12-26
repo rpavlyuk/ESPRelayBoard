@@ -670,6 +670,61 @@ static esp_err_t validate_device_identity_from_get_query(httpd_req_t *req)
 
 
 /**
+ * @brief Validates device identity from a cJSON object.
+ *
+ * This function extracts the 'device_id' and 'device_serial' fields from the provided cJSON object
+ * and compares them with the values stored in NVS (Non-Volatile Storage). If the values match, the function
+ * returns ESP_OK; otherwise, it returns ESP_FAIL.
+ *
+ * @param json Pointer to the cJSON object containing device identity fields.
+ * @return ESP_OK if the device identity is valid, ESP_FAIL otherwise.
+ */
+static esp_err_t validate_device_identity_from_json(const cJSON *json) {
+    if (!json) return ESP_FAIL;
+
+    const cJSON *device_id_in = cJSON_GetObjectItemCaseSensitive(json, "device_id");
+    const cJSON *device_serial_in = cJSON_GetObjectItemCaseSensitive(json, "device_serial");
+
+    if (!cJSON_IsString(device_id_in) || (device_id_in->valuestring == NULL)) {
+        return ESP_FAIL;
+    }
+
+    if (!cJSON_IsString(device_serial_in) || (device_serial_in->valuestring == NULL)) {
+        return ESP_FAIL;
+    }
+
+    char *device_id_nvs = NULL;
+    char *device_serial_nvs = NULL;
+
+    esp_err_t err;
+
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id_nvs);
+    if (err != ESP_OK || !device_id_nvs) {
+        free(device_id_nvs);
+        return ESP_FAIL;
+    }
+
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs);
+    if (err != ESP_OK || !device_serial_nvs) {
+        free(device_id_nvs);
+        free(device_serial_nvs);
+        return ESP_FAIL;
+    }
+
+    bool ok = (strcmp(device_id_in->valuestring, device_id_nvs) == 0) &&
+              (strcmp(device_serial_in->valuestring, device_serial_nvs) == 0);
+
+    free(device_id_nvs);
+    free(device_serial_nvs);
+
+    if (!ok) {
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+/**
  * @brief Converts a cJSON value to its string representation.
  *
  * This function takes a cJSON value and converts it to a string representation.
@@ -1695,7 +1750,15 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON *json = cJSON_Parse(content);
     if (json == NULL) {
         ESP_LOGE(TAG, "Failed to parse JSON");
-        httpd_resp_send_500(req);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to parse JSON");
+        return ESP_FAIL;
+    }
+
+    // Validate device ID and serial from NVS
+    if (validate_device_identity_from_json(json) != ESP_OK) {
+        ESP_LOGE(TAG, "Device identity validation failed: invalid serial or ID");
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Device identity validation failed: invalid serial or ID");
+        cJSON_Delete(json);
         return ESP_FAIL;
     }
 
@@ -1704,20 +1767,9 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     if (data == NULL) {
         ESP_LOGE(TAG, "No 'data' object in JSON");
         cJSON_Delete(json);
-        httpd_resp_send_500(req);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No 'data' object in JSON");
         return ESP_FAIL;
     }
-
-    // Extract and validate the mandatory fields: device_serial and relay_key
-    // Safely retrieve 'device_serial' from JSON
-    cJSON *device_serial_item = cJSON_GetObjectItem(data, "device_serial");
-    if (device_serial_item == NULL || !cJSON_IsString(device_serial_item)) {
-        ESP_LOGE(TAG, "Missing or invalid 'device_serial' in JSON data");
-        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Missing or invalid 'device_serial'");
-        cJSON_Delete(json);  // Don't forget to free the cJSON object
-        return ESP_FAIL;
-    }
-    const char *device_serial = device_serial_item->valuestring;
 
     // Safely retrieve 'relay_key' from JSON
     cJSON *relay_key_item = cJSON_GetObjectItem(data, "relay_key");
@@ -1727,27 +1779,14 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         cJSON_Delete(json);
         return ESP_FAIL;
     }
-
     const char *relay_key = relay_key_item->valuestring;
 
-    if (device_serial == NULL || relay_key == NULL) {
-        ESP_LOGE(TAG, "Missing mandatory fields: device_serial or relay_key");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing mandatory fields");
+    if (relay_key == NULL) {
+        ESP_LOGE(TAG, "Missing or malformed mandatory field: relay_key");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or malformed mandatory field: relay_key");
         cJSON_Delete(json);
         return ESP_FAIL;
     }
-
-    // Validate device serial from NVS
-    char *device_serial_nvs = NULL;
-    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs));
-    if (strcmp(device_serial, device_serial_nvs) != 0) {
-        ESP_LOGE(TAG, "Device serial mismatch: provided: %s, actual: %s", device_serial, device_serial_nvs);
-        free(device_serial_nvs);
-        cJSON_Delete(json);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
-    free(device_serial_nvs);
 
     // Extract relay type or assume RELAY_TYPE_ACTUATOR if not provided
     cJSON *relay_type_item = cJSON_GetObjectItem(data, "relay_type");
@@ -2853,7 +2892,11 @@ static esp_err_t static_stream_handler(httpd_req_t *req) {
 
     // Set content type based on requested URI extension (not SPIFFS name)
     httpd_resp_set_type(req, content_type_from_ext(uri));
+#if ENABLE_STATIC_NOCACHE_HEADER
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+#else
     httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600"); // optional
+#endif
 
     // Buffers
     char *read_line = (char *)malloc(STREAM_READ_LINE_SZ);

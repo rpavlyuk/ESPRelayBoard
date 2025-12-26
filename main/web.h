@@ -14,7 +14,7 @@
 #define STREAM_READ_LINE_SZ     2048   // fgets read size; must be <= STREAM_LINE_BUF_SZ
 #define STATIC_PATH_PREFIX      "/spiffs/static-"  // /static/x.js -> /spiffs/static-x.js
 #define ENABLE_PLACEHOLDER_REPLACEMENT false  // set to true to enable placeholder replacement in static files
-
+#define ENABLE_STATIC_NOCACHE_HEADER   true  // set to true to add no-cache headers to static file responses
 
 
 void run_http_server(void *param);
@@ -59,6 +59,7 @@ esp_err_t replace_placeholder_sized(char *buf, size_t cap,
 int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size);
 static esp_err_t extract_param_value_from_get_query(httpd_req_t *req, const char *param_name, char *output, size_t output_size);
 static esp_err_t validate_device_identity_from_get_query(httpd_req_t *req);
+static esp_err_t validate_device_identity_from_json(const cJSON *json);
 
 static void json_value_to_string(const cJSON *v, char *out, size_t out_sz);
 

@@ -67,16 +67,16 @@
     
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="/static/shared.js"></script>
-    <script src="/static/status.js"></script>
-
     <script>
     // Page wiring + placeholders (keep these in HTML)
-    window.RelayBoardStatusConfig = {
+    window.RelayBoardStatus = {
         deviceId: "{VAL_DEVICE_ID}",
         deviceSerial: "{VAL_DEVICE_SERIAL}",
         readIntervalMs: {VAL_STATUS_READ_INTERVAL}
     };
     </script>
+    <!-- Must go after window.RelayBoardStatus is defined -->
+    <script src="/static/status.js"></script>
 
 </body>
 </html>
