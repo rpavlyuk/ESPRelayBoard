@@ -51,14 +51,16 @@ void run_http_server(void *param) {
     ESP_LOGI(TAG, "webserver: Wi-Fi/network is ready!");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 24;
     config.stack_size = 16384;
     config.recv_wait_timeout = 20;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
         ESP_LOGI(TAG, "HTTP server started. Registering handlers...");
+        esp_err_t err;
         // Set URI handlers
         httpd_uri_t root_uri = {
             .uri       = "/",
@@ -66,7 +68,8 @@ void run_http_server(void *param) {
             .handler   = config_get_handler,
             .user_ctx  = NULL
         };
-        httpd_register_uri_handler(server, &root_uri);
+        err = httpd_register_uri_handler(server, &root_uri);
+        ESP_LOGI(TAG, "Register %s => %s", root_uri.uri, esp_err_to_name(err));
 
         // Set URI handlers
         httpd_uri_t config_uri = {
@@ -75,7 +78,8 @@ void run_http_server(void *param) {
             .handler   = config_get_handler,
             .user_ctx  = NULL
         };
-        httpd_register_uri_handler(server, &config_uri);
+        err = httpd_register_uri_handler(server, &config_uri);
+        ESP_LOGI(TAG, "Register %s => %s", config_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t submit_uri = {
             .uri       = "/submit",
@@ -83,7 +87,8 @@ void run_http_server(void *param) {
             .handler   = submit_config_handler,
             .user_ctx  = NULL
         };
-        httpd_register_uri_handler(server, &submit_uri);
+        err = httpd_register_uri_handler(server, &submit_uri);
+        ESP_LOGI(TAG, "Register %s => %s", submit_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t ca_cert_uri = {
             .uri       = "/ca-cert",
@@ -93,7 +98,8 @@ void run_http_server(void *param) {
         };
 
         // Register the handler
-        httpd_register_uri_handler(server, &ca_cert_uri);
+        err = httpd_register_uri_handler(server, &ca_cert_uri);
+        ESP_LOGI(TAG, "Register %s => %s", ca_cert_uri.uri, esp_err_to_name(err));
 
         // URI handler for reboot action
         httpd_uri_t reboot_uri = {
@@ -102,7 +108,8 @@ void run_http_server(void *param) {
             .handler = reboot_handler,
             .user_ctx = NULL
         };
-        httpd_register_uri_handler(server, &reboot_uri);
+        err = httpd_register_uri_handler(server, &reboot_uri);
+        ESP_LOGI(TAG, "Register %s => %s", reboot_uri.uri, esp_err_to_name(err));
 
         // URI handler for relays action
         httpd_uri_t relays_uri = {
@@ -111,7 +118,8 @@ void run_http_server(void *param) {
             .handler = relays_get_handler,
             .user_ctx = NULL
         };
-        httpd_register_uri_handler(server, &relays_uri);     
+        err = httpd_register_uri_handler(server, &relays_uri);
+        ESP_LOGI(TAG, "Register %s => %s", relays_uri.uri, esp_err_to_name(err));
 
         // Register the /update-relay POST handler
         httpd_uri_t update_relay_uri = {
@@ -121,7 +129,8 @@ void run_http_server(void *param) {
             .user_ctx = NULL              
         };
 
-        httpd_register_uri_handler(server, &update_relay_uri);  
+        err = httpd_register_uri_handler(server, &update_relay_uri);
+        ESP_LOGI(TAG, "Register %s => %s", update_relay_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t status_uri = {
             .uri       = "/status",
@@ -129,7 +138,8 @@ void run_http_server(void *param) {
             .handler   = status_get_handler,
             .user_ctx  = NULL
         };
-        httpd_register_uri_handler(server, &status_uri);
+        err = httpd_register_uri_handler(server, &status_uri);
+        ESP_LOGI(TAG, "Register %s => %s", status_uri.uri, esp_err_to_name(err));
        
         // Register the status web service handler
         httpd_uri_t status_webserver_get_uri = {
@@ -138,7 +148,8 @@ void run_http_server(void *param) {
             .handler   = status_data_handler,
             .user_ctx  = NULL
         };
-        httpd_register_uri_handler(server, &status_webserver_get_uri);
+        err = httpd_register_uri_handler(server, &status_webserver_get_uri);
+        ESP_LOGI(TAG, "Register %s => %s", status_webserver_get_uri.uri, esp_err_to_name(err));
 
         // Register the relays data web service handler
         httpd_uri_t relays_data = {
@@ -147,7 +158,8 @@ void run_http_server(void *param) {
             .handler  = relays_data_get_handler, 
             .user_ctx = NULL                     
         };
-        httpd_register_uri_handler(server, &relays_data);
+        err = httpd_register_uri_handler(server, &relays_data);
+        ESP_LOGI(TAG, "Register %s => %s", relays_data.uri, esp_err_to_name(err));
 
         httpd_uri_t ota_update_uri = {
             .uri      = "/ota-update",  // URL endpoint
@@ -157,7 +169,8 @@ void run_http_server(void *param) {
         };
 
         // Register the OTA update URI handler
-        httpd_register_uri_handler(server, &ota_update_uri);
+        err = httpd_register_uri_handler(server, &ota_update_uri);
+        ESP_LOGI(TAG, "Register %s => %s", ota_update_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t reset_uri = {
             .uri      = "/reset",  // URL endpoint
@@ -167,7 +180,8 @@ void run_http_server(void *param) {
         };
 
         // Register the reset URI handler
-        httpd_register_uri_handler(server, &reset_uri);
+        err = httpd_register_uri_handler(server, &reset_uri);
+        ESP_LOGI(TAG, "Register %s => %s", reset_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t setting_update_uri = {
             .uri      = "/api/setting/update",  // URL endpoint
@@ -177,7 +191,8 @@ void run_http_server(void *param) {
         };
 
         // Register the setting update URI handler
-        httpd_register_uri_handler(server, &setting_update_uri);
+        err = httpd_register_uri_handler(server, &setting_update_uri);
+        ESP_LOGI(TAG, "Register %s => %s", setting_update_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t setting_get_all_uri = {
             .uri      = "/api/setting/get/all",  // URL endpoint
@@ -187,7 +202,8 @@ void run_http_server(void *param) {
         };
 
         // Register the setting update URI handler
-        httpd_register_uri_handler(server, &setting_get_all_uri);
+        err = httpd_register_uri_handler(server, &setting_get_all_uri);
+        ESP_LOGI(TAG, "Register %s => %s", setting_get_all_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t setting_get_one_uri = {
             .uri      = "/api/setting/get",
@@ -196,7 +212,8 @@ void run_http_server(void *param) {
             .user_ctx = NULL
         };
 
-        httpd_register_uri_handler(server, &setting_get_one_uri);
+        err = httpd_register_uri_handler(server, &setting_get_one_uri);
+        ESP_LOGI(TAG, "Register %s => %s", setting_get_one_uri.uri, esp_err_to_name(err));
 
         httpd_uri_t get_ca_cert_uri = {
             .uri      = "/api/cert/get",
@@ -205,8 +222,19 @@ void run_http_server(void *param) {
             .user_ctx = NULL
         };
 
-        httpd_register_uri_handler(server, &get_ca_cert_uri);
+        err = httpd_register_uri_handler(server, &get_ca_cert_uri);
+        ESP_LOGI(TAG, "Register %s => %s", get_ca_cert_uri.uri, esp_err_to_name(err));
 
+        // Register the static file streaming handler
+        httpd_uri_t static_uri = {
+            .uri        = "/static/*",
+            .method     = HTTP_GET,
+            .handler    = static_stream_handler,
+            .user_ctx   = NULL
+        };
+
+        err = httpd_register_uri_handler(server, &static_uri);
+        ESP_LOGI(TAG, "Register %s => %s", static_uri.uri, esp_err_to_name(err));
         
         ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
     } else {
@@ -304,6 +332,103 @@ void replace_placeholder(char *html_output, const char *placeholder, const char 
         memcpy(pos, value, len_value);
     }
 }
+
+/**
+ * @brief Replace placeholders in a bounded (sized) buffer.
+ *
+ * Safer alternative to replace_placeholder(): prevents buffer overflow and
+ * avoids unbounded strlen() scans past the buffer capacity.
+ *
+ * Behavior:
+ * - Modifies @p buf in place.
+ * - Replaces ALL occurrences of @p placeholder with @p value.
+ * - If expansion would exceed @p cap (including final '\0'), returns ESP_ERR_NO_MEM.
+ *
+ * @param[in,out] buf         Buffer containing a NUL-terminated string.
+ * @param[in]     cap         Total buffer capacity in bytes (including space for '\0').
+ * @param[in]     placeholder Placeholder substring to replace (must be non-empty).
+ * @param[in]     value       Replacement string (NULL treated as "").
+ *
+ * @return
+ *   ESP_OK on success
+ *   ESP_ERR_INVALID_ARG on bad arguments or non-terminated input within cap
+ *   ESP_ERR_NO_MEM if output would exceed cap
+ */
+esp_err_t replace_placeholder_sized(char *buf, size_t cap,
+                                   const char *placeholder,
+                                   const char *value) {
+    if (!buf || cap == 0 || !placeholder) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!value) {
+        value = "";
+    }
+
+    const size_t ph_len = strlen(placeholder);
+    const size_t val_len = strlen(value);
+
+    if (ph_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Ensure buf is NUL-terminated within cap
+    size_t cur_len = strnlen(buf, cap);
+    if (cur_len >= cap) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Search from the beginning each time, but always bounded by cap via strnlen checks
+    char *pos = buf;
+
+    while (true) {
+        // strstr() is fine as long as buf is terminated within cap (checked above)
+        pos = strstr(pos, placeholder);
+        if (!pos) {
+            break;
+        }
+
+        // Re-evaluate current length (still bounded)
+        cur_len = strnlen(buf, cap);
+        if (cur_len >= cap) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        const size_t head_off = (size_t)(pos - buf);
+
+        // Sanity: placeholder must fully reside within the current string
+        if (head_off + ph_len > cur_len) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        // Tail length after the placeholder (bytes after it, not including '\0')
+        const size_t tail_len = cur_len - (head_off + ph_len);
+
+        // New length after replacement
+        const size_t new_len = cur_len - ph_len + val_len;
+
+        // Need space for '\0' too
+        if (new_len >= cap) {
+            return ESP_ERR_NO_MEM;
+        }
+
+        // Move tail (including '\0') to its new position
+        memmove(buf + head_off + val_len,
+                buf + head_off + ph_len,
+                tail_len + 1);
+
+        // Copy in replacement value
+        if (val_len > 0) {
+            memcpy(buf + head_off, value, val_len);
+        }
+
+        // Continue searching *after* the inserted value to avoid infinite loops
+        pos = buf + head_off + val_len;
+    }
+
+    return ESP_OK;
+}
+
 
 /**
  * @brief: Helper function to truncate a string after the last occurrence of a substring
@@ -455,6 +580,32 @@ static esp_err_t extract_param_value_from_get_query(httpd_req_t *req,
     return err; // ESP_OK or ESP_ERR_NOT_FOUND
 }
 
+/**
+ * @brief Determines the content type based on the file extension.
+ *
+ * This function takes a file path as input and returns the corresponding
+ * MIME content type based on the file extension. If the extension is not
+ * recognized, it defaults to "application/octet-stream".
+ *
+ * @param path The file path to analyze.
+ * @return The corresponding content type as a string.
+ */
+static const char *content_type_from_ext(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot) return "application/octet-stream";
+
+    if (strcasecmp(dot, ".html") == 0) return "text/html";
+    if (strcasecmp(dot, ".css")  == 0) return "text/css";
+    if (strcasecmp(dot, ".js")   == 0) return "application/javascript";
+    if (strcasecmp(dot, ".json") == 0) return "application/json";
+    if (strcasecmp(dot, ".svg")  == 0) return "image/svg+xml";
+    if (strcasecmp(dot, ".png")  == 0) return "image/png";
+    if (strcasecmp(dot, ".jpg")  == 0 || strcasecmp(dot, ".jpeg") == 0) return "image/jpeg";
+    if (strcasecmp(dot, ".ico")  == 0) return "image/x-icon";
+    if (strcasecmp(dot, ".txt")  == 0) return "text/plain";
+
+    return "application/octet-stream";
+}
 
 /**
  * @brief Validates device identity from HTTP request query parameters.
@@ -2115,8 +2266,8 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing status web request");
 
     // Allocate memory dynamically for template and output
-    char *html_template = (char *)malloc(MAX_TEMPLATE_SIZE);
-    char *html_output = (char *)malloc(MAX_TEMPLATE_SIZE);
+    char *html_template = (char *)malloc(MAX_SMALL_TEMPLATE_SIZE + 1);
+    char *html_output = (char *)malloc(MAX_SMALL_TEMPLATE_SIZE + 1);
 
     if (html_template == NULL || html_output == NULL) {
         ESP_LOGE(TAG, "Memory allocation failed");
@@ -2137,7 +2288,7 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
     }
 
     // Load the template into html_template
-    size_t len = fread(html_template, 1, MAX_TEMPLATE_SIZE, f);
+    size_t len = fread(html_template, 1, MAX_SMALL_TEMPLATE_SIZE, f);
     fclose(f);
     html_template[len] = '\0';  // Null-terminate the string
 
@@ -2621,6 +2772,189 @@ static esp_err_t get_ca_certificate_handler(httpd_req_t *req) {
     free(out);
     free(cert);
 
+    return ESP_OK;
+}
+
+/**
+ * @brief HTTP handler to stream /static/<name> as /spiffs/static-<name> (SPIFFS has no dirs)
+ * This handler streams static files from SPIFFS with on-the-fly placeholder replacement.
+ *
+ * Example:
+ *   GET /static/script.js  ->  /spiffs/static-script.js
+ *
+ * Notes:
+ * - Uses line-by-line streaming with placeholder replacement.
+ * - For placeholders that might span lines, you'll need a real streaming placeholder engine.
+ * - Adjust STREAM_READ_LINE_SZ and STREAM_LINE_BUF_SZ as needed.
+ * 
+ * @param req HTTP request
+ * @return ESP_OK or ESP_FAIL
+ */
+static esp_err_t static_stream_handler(httpd_req_t *req) {
+    // Basic URI validation
+    const char *uri = req->uri;                 // e.g. "/static/script.js"
+    const char *prefix = "/static/";
+    const size_t prefix_len = strlen(prefix);
+
+    ESP_LOGI(TAG, "Static file request: %s", uri);
+
+    if (strncmp(uri, prefix, prefix_len) != 0 || uri[prefix_len] == '\0') {
+        ESP_LOGW(TAG, "Invalid static file request: %s", uri);
+        httpd_resp_send_404(req);
+        return ESP_OK;
+    }
+
+    // Disallow parent traversal and weird paths
+    // (we don't support subdirs anyway; map "a/b.js" -> "a-b.js")
+    char mapped_name[128] = {0};
+    {
+        const char *name = uri + prefix_len;    // "script.js" or "dir/file.js"
+        size_t j = 0;
+
+        for (size_t i = 0; name[i] != '\0' && j < sizeof(mapped_name) - 1; i++) {
+            char c = name[i];
+
+            // Reject obvious traversal
+            if (c == '.' && name[i + 1] == '.') {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid path");
+                return ESP_OK;
+            }
+
+            // SPIFFS mapping: replace '/' with '-' (SPIFFS has no dirs)
+            if (c == '/') c = '-';
+
+            // Keep it conservative: allow alnum and a few safe symbols
+            if (!(isalnum((unsigned char)c) || c=='-' || c=='_' || c=='.')) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid characters in path");
+                return ESP_OK;
+            }
+
+            mapped_name[j++] = c;
+        }
+
+        mapped_name[j] = '\0';
+
+        if (mapped_name[0] == '\0') {
+            httpd_resp_send_404(req);
+            return ESP_OK;
+        }
+    }
+
+    // Build actual SPIFFS path: /spiffs/static-<mapped_name>
+    char filepath[192];
+    snprintf(filepath, sizeof(filepath), "%s%s", STATIC_PATH_PREFIX, mapped_name);
+
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        ESP_LOGW(TAG, "File not found: %s (uri=%s)", filepath, uri);
+        httpd_resp_send_404(req);
+        return ESP_OK;
+    }
+
+    // Set content type based on requested URI extension (not SPIFFS name)
+    httpd_resp_set_type(req, content_type_from_ext(uri));
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600"); // optional
+
+    // Buffers
+    char *read_line = (char *)malloc(STREAM_READ_LINE_SZ);
+    char *work_line = (char *)malloc(STREAM_LINE_BUF_SZ);
+    if (!read_line || !work_line) {
+        fclose(f);
+        free(read_line);
+        free(work_line);
+        httpd_resp_send_500(req);
+        return ESP_OK;
+    }
+
+#if ENABLE_PLACEHOLDER_REPLACEMENT
+    // NOTE: If you want these per-request, extract them from query params.
+    // For now, keep placeholders consistent with the rest of your templating model.
+    char *device_id = NULL;
+    char *device_serial = NULL;
+
+    esp_err_t err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id);
+    if (err != ESP_OK || !device_id) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_id from NVS");
+        return ESP_FAIL;
+    }
+
+    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial);
+    if (err != ESP_OK || !device_serial) {
+        free(device_id);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_serial from NVS");
+        return ESP_FAIL;
+    }
+ #endif
+
+    while (fgets(read_line, STREAM_READ_LINE_SZ, f) != NULL) {
+        // If the line is longer than STREAM_READ_LINE_SZ-1, fgets returns a partial line
+        // (no '\n' and not EOF). This approach cannot safely template such lines.
+        size_t rl = strlen(read_line);
+        if (rl == STREAM_READ_LINE_SZ - 1 && read_line[rl - 1] != '\n' && !feof(f)) {
+            ESP_LOGE(TAG,
+                     "Line too long in %s; increase STREAM_READ_LINE_SZ/STREAM_LINE_BUF_SZ "
+                     "or avoid templating large/minified assets",
+                     filepath);
+            fclose(f);
+            free(read_line);
+            free(work_line);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template line too long");
+            return ESP_OK;
+        }
+
+        // Copy into a larger working buffer to give replacements room to expand
+        strlcpy(work_line, read_line, STREAM_LINE_BUF_SZ);
+
+#if ENABLE_PLACEHOLDER_REPLACEMENT
+        // Replace placeholders safely (bounded)
+        esp_err_t r;
+
+        r = replace_placeholder_sized(work_line, STREAM_LINE_BUF_SZ,
+                                      "{VAL_DEVICE_ID}", device_id);
+        if (r != ESP_OK) {
+            ESP_LOGE(TAG, "Template expansion overflow in %s (device_id): %s",
+                     filepath, esp_err_to_name(r));
+            fclose(f);
+            free(read_line);
+            free(work_line);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template expansion overflow");
+            return ESP_OK;
+        }
+
+        r = replace_placeholder_sized(work_line, STREAM_LINE_BUF_SZ,
+                                      "{VAL_DEVICE_SERIAL}", device_serial);
+        if (r != ESP_OK) {
+            ESP_LOGE(TAG, "Template expansion overflow in %s (device_serial): %s",
+                     filepath, esp_err_to_name(r));
+            fclose(f);
+            free(read_line);
+            free(work_line);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template expansion overflow");
+            return ESP_OK;
+        }
+#endif
+        // Stream it out
+        esp_err_t err = httpd_resp_send_chunk(req, work_line, HTTPD_RESP_USE_STRLEN);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "send_chunk failed (err=0x%x)", (unsigned)err);
+            break;
+        }
+
+        // Optional: yield a tick if you ever template larger pages to avoid WDT starvation
+        // vTaskDelay(1);
+    }
+
+    fclose(f);
+    free(read_line);
+    free(work_line);
+
+#if ENABLE_PLACEHOLDER_REPLACEMENT
+    free(device_id);
+    free(device_serial);
+#endif
+
+    // End chunked response
+    httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
 
