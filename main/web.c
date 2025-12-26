@@ -774,15 +774,15 @@ static void json_value_to_string(const cJSON *v, char *out, size_t out_sz)
 
 /* HANDLERS */
 /**
- * @brief Calculates the factorial of a given number.
- *
- * This function takes an integer as input and returns the factorial of that number.
- * The factorial of a non-negative integer n is the product of all positive integers less than or equal to n.
- * For example, the factorial of 5 is 5 * 4 * 3 * 2 * 1 = 120.
- *
- * @param n The integer for which the factorial is to be calculated. Must be non-negative.
- * @return The factorial of the input number. If the input is 0, the function returns 1.
- */
+* @brief HTTP GET handler for the configuration page.
+*
+* This function handles HTTP GET requests for the configuration page.
+* It reads the HTML template from SPIFFS, replaces placeholders with actual values
+* from NVS, and sends the resulting HTML content as the response.
+*
+* @param req Pointer to the HTTP request structure.
+* @return ESP_OK on success, ESP_FAIL on failure.
+*/
 static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Processing config web request");
 
@@ -833,6 +833,14 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     fclose(f);
     html_output[len] = '\0'; // Null-terminate the string
 
+    char *device_id = NULL;
+    char *device_serial = NULL;
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
+    replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
+    replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
+
+#if ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT
     // Allocate memory for the strings you will retrieve from NVS
     char *mqtt_server = NULL;
     char *mqtt_protocol = NULL;
@@ -840,8 +848,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     char *mqtt_password = NULL;
     char *mqtt_prefix = NULL;
     char *ha_prefix = NULL;
-    char *device_id = NULL;
-    char *device_serial = NULL;
     char *ota_update_url = NULL;
     char *net_log_host = NULL;
 
@@ -867,8 +873,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PASSWORD, &mqtt_password));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PREFIX, &mqtt_prefix));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_HA_PREFIX, &ha_prefix));
-    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
-    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
     ESP_ERROR_CHECK(nvs_read_uint32(S_NAMESPACE, S_KEY_HA_UPDATE_INTERVAL, &ha_upd_intervl));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, &relay_refr_int));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
@@ -900,8 +904,6 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     snprintf(net_log_port_str, sizeof(net_log_port_str), "%i", (uint16_t) net_log_port);
     snprintf(net_log_stdout_str, sizeof(net_log_stdout_str), "%i", (uint16_t) net_log_stdout);
 
-    replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
-    replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
     replace_placeholder(html_output, "{VAL_MQTT_SERVER}", mqtt_server);
     replace_placeholder(html_output, "{VAL_MQTT_PORT}", mqtt_port_str);
     replace_placeholder(html_output, "{VAL_MQTT_PROTOCOL}", mqtt_protocol);
@@ -920,7 +922,7 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_NET_LOGGING_HOST}", net_log_host);
     replace_placeholder(html_output, "{VAL_NET_LOGGING_PORT}", net_log_port_str);
     replace_placeholder(html_output, "{VAL_NET_LOGGING_KEEP_STDOUT}", net_log_stdout_str);
-
+#endif
     // replace static fields
     assign_static_page_variables(html_output);
 
@@ -932,16 +934,18 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
     // Free dynamically allocated memory
     free(mem);
     mem = NULL;
+    free(device_id);
+    free(device_serial);
+#if ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT
     free(mqtt_server);
     free(mqtt_protocol);
     free(mqtt_user);
     free(mqtt_password);
     free(mqtt_prefix);
     free(ha_prefix);
-    free(device_id);
-    free(device_serial);
     free(ota_update_url);
     free(net_log_host);
+#endif
 
     return ESP_OK;
 }
@@ -1138,11 +1142,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     free(ha_prefix);
     free(ota_update_url);
     free(net_log_host);
-
-    // declaring NULL pointers for neccessary variables
-    char *device_id = NULL;
-    char *device_serial = NULL;
-
     // resetting the pointers
     mqtt_server = NULL;
     mqtt_protocol = NULL;
@@ -1153,6 +1152,17 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     ota_update_url = NULL;
     net_log_host = NULL;
 
+    // declaring NULL pointers for neccessary variables
+    char *device_id = NULL;
+    char *device_serial = NULL;
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
+    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
+    replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
+    replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
+    free(device_id);
+    free(device_serial);
+
+#if ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT
     // Load settings from NVS (use default values if not set)
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_SERVER, &mqtt_server));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_PORT, &mqtt_port));
@@ -1161,8 +1171,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PASSWORD, &mqtt_password));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_MQTT_PREFIX, &mqtt_prefix));
     ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_HA_PREFIX, &ha_prefix));
-    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
-    ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
     ESP_ERROR_CHECK(nvs_read_uint32(S_NAMESPACE, S_KEY_HA_UPDATE_INTERVAL, &ha_upd_intervl));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connect));
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_RELAY_REFRESH_INTERVAL, &relay_refr_int));
@@ -1187,9 +1195,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
 
 
     // ESP_LOGI(TAG, "Current HTML output size: %i, MAX_TEMPLATE_SIZE: %i", sizeof(html_output), MAX_TEMPLATE_SIZE);
-
-    replace_placeholder(html_output, "{VAL_DEVICE_ID}", device_id);
-    replace_placeholder(html_output, "{VAL_DEVICE_SERIAL}", device_serial);
     replace_placeholder(html_output, "{VAL_MQTT_SERVER}", mqtt_server);
     replace_placeholder(html_output, "{VAL_MQTT_PORT}", mqtt_port_str);
     replace_placeholder(html_output, "{VAL_MQTT_PROTOCOL}", mqtt_protocol);
@@ -1209,6 +1214,16 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     replace_placeholder(html_output, "{VAL_NET_LOGGING_PORT}", net_log_port_str);
     replace_placeholder(html_output, "{VAL_NET_LOGGING_KEEP_STDOUT}", net_log_stdout_str);
 
+    free(mqtt_server);
+    free(mqtt_protocol);
+    free(mqtt_user);
+    free(mqtt_password);
+    free(mqtt_prefix);
+    free(ha_prefix);
+    free(ota_update_url);
+    free(net_log_host);
+#endif
+
     // replace static fields
     assign_static_page_variables(html_output);
 
@@ -1221,16 +1236,6 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
     // Free dynamically allocated memory
     free(mem);
     mem = NULL;
-    free(mqtt_server);
-    free(mqtt_protocol);
-    free(mqtt_user);
-    free(mqtt_password);
-    free(mqtt_prefix);
-    free(ha_prefix);
-    free(device_id);
-    free(device_serial);
-    free(ota_update_url);
-    free(net_log_host);
 
     return ESP_OK;
 }

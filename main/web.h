@@ -15,6 +15,7 @@
 #define STATIC_PATH_PREFIX      "/spiffs/static-"  // /static/x.js -> /spiffs/static-x.js
 #define ENABLE_PLACEHOLDER_REPLACEMENT false  // set to true to enable placeholder replacement in static files
 #define ENABLE_STATIC_NOCACHE_HEADER   true  // set to true to add no-cache headers to static file responses
+#define ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT false  // set to true to enable placeholder replacement in config.html
 
 
 void run_http_server(void *param);

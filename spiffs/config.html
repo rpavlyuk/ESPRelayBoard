@@ -33,7 +33,8 @@
     <div class="container">
     <h3>Device: {VAL_DEVICE_ID}</h3>
     <h5>Device Serial: {VAL_DEVICE_SERIAL}</h5>
-    <h5>{VAL_MESSAGE}</h5>
+    <h5 id="cfg_msg">{VAL_MESSAGE}</h5>
+    <div id="cfg_save_msg"></div>
     <form action="/submit" method="POST">
         <table border="0">
             <tr><td><b>MQTT</b></td><td></td></tr>
@@ -234,20 +235,14 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <!-- Make sure script.js is included (example) -->
     <script src="/static/shared.js"></script>
-    <script src="/static/config.js"></script>
-
     <script>
       // Provide page-specific variables to script.js
       window.RelayBoardConfig = {
         deviceId: "{VAL_DEVICE_ID}",
         deviceSerial: "{VAL_DEVICE_SERIAL}"
       };
-
-      // Keep the explicit selectElement() calls in HTML (as you prefer)
-      selectElement('mqtt_connect', '{VAL_MQTT_CONNECT}');
-      selectElement('net_log_type', '{VAL_NET_LOGGING_TYPE}');
-      selectElement('net_log_stdout', '{VAL_NET_LOGGING_KEEP_STDOUT}');
     </script>
+    <script src="/static/config.js"></script>
 
 </body>
 </html>
