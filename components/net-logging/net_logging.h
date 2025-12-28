@@ -17,7 +17,7 @@ typedef struct {
 } PARAMETER_t;
 
 // The total number of bytes (not messages) the message buffer will be able to hold at any one time.
-#define xBufferSizeBytes 16384
+#define xBufferSizeBytes 8192
 // The size, in bytes, required to hold each item in the message,
 #define xItemSize 1024
 

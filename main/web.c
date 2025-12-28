@@ -38,7 +38,7 @@ static httpd_handle_t server = NULL;
 void run_http_server(void *param) {
 
     // wait for Wi-Fi to connect
-    ESP_LOGI(TAG, "webserver: Waiting for Wi-Fi/network to become ready...");
+    ESP_LOGI(TAG, "HTTPD Server: Waiting for Wi-Fi/network to become ready...");
 
     xEventGroupWaitBits(
         g_sys_events,            // event group handle
@@ -48,10 +48,14 @@ void run_http_server(void *param) {
         portMAX_DELAY            // wait forever
     );
 
-    ESP_LOGI(TAG, "webserver: Wi-Fi/network is ready!");
+    ESP_LOGI(TAG, "HTTPD Server: Wi-Fi/network is ready!");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+#if _DEVICE_ENABLE_WEB
     config.max_uri_handlers = 24;
+#else
+    config.max_uri_handlers = 16;
+#endif
     config.stack_size = 16384;
     config.recv_wait_timeout = 20;
     config.uri_match_fn = httpd_uri_match_wildcard;
@@ -61,6 +65,10 @@ void run_http_server(void *param) {
     if (httpd_start(&server, &config) == ESP_OK) {
         ESP_LOGI(TAG, "HTTP server started. Registering handlers...");
         esp_err_t err;
+        int h_count = 0; // handler count
+#if _DEVICE_ENABLE_WEB
+        ESP_LOGI(TAG, "Registering WEB page handlers...");
+        /** WEB PAGE Handlers **/
         // Set URI handlers
         httpd_uri_t root_uri = {
             .uri       = "/",
@@ -70,6 +78,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &root_uri);
         ESP_LOGI(TAG, "Register %s => %s", root_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         // Set URI handlers
         httpd_uri_t config_uri = {
@@ -80,6 +89,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &config_uri);
         ESP_LOGI(TAG, "Register %s => %s", config_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t submit_uri = {
             .uri       = "/submit",
@@ -89,6 +99,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &submit_uri);
         ESP_LOGI(TAG, "Register %s => %s", submit_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t ca_cert_uri = {
             .uri       = "/ca-cert",
@@ -100,6 +111,7 @@ void run_http_server(void *param) {
         // Register the handler
         err = httpd_register_uri_handler(server, &ca_cert_uri);
         ESP_LOGI(TAG, "Register %s => %s", ca_cert_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         // URI handler for reboot action
         httpd_uri_t reboot_uri = {
@@ -110,6 +122,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &reboot_uri);
         ESP_LOGI(TAG, "Register %s => %s", reboot_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         // URI handler for relays action
         httpd_uri_t relays_uri = {
@@ -120,17 +133,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &relays_uri);
         ESP_LOGI(TAG, "Register %s => %s", relays_uri.uri, esp_err_to_name(err));
-
-        // Register the /update-relay POST handler
-        httpd_uri_t update_relay_uri = {
-            .uri      = "/api/relay/update",   
-            .method   = HTTP_POST,         // Only accept POST requests
-            .handler  = update_relay_post_handler, // Handler function
-            .user_ctx = NULL              
-        };
-
-        err = httpd_register_uri_handler(server, &update_relay_uri);
-        ESP_LOGI(TAG, "Register %s => %s", update_relay_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t status_uri = {
             .uri       = "/status",
@@ -140,26 +143,7 @@ void run_http_server(void *param) {
         };
         err = httpd_register_uri_handler(server, &status_uri);
         ESP_LOGI(TAG, "Register %s => %s", status_uri.uri, esp_err_to_name(err));
-       
-        // Register the status web service handler
-        httpd_uri_t status_webserver_get_uri = {
-            .uri       = "/api/status",
-            .method    = HTTP_GET,
-            .handler   = status_data_handler,
-            .user_ctx  = NULL
-        };
-        err = httpd_register_uri_handler(server, &status_webserver_get_uri);
-        ESP_LOGI(TAG, "Register %s => %s", status_webserver_get_uri.uri, esp_err_to_name(err));
-
-        // Register the relays data web service handler
-        httpd_uri_t relays_data = {
-            .uri      = "/api/relays",           
-            .method   = HTTP_GET,                
-            .handler  = relays_data_get_handler, 
-            .user_ctx = NULL                     
-        };
-        err = httpd_register_uri_handler(server, &relays_data);
-        ESP_LOGI(TAG, "Register %s => %s", relays_data.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t ota_update_uri = {
             .uri      = "/ota-update",  // URL endpoint
@@ -171,6 +155,7 @@ void run_http_server(void *param) {
         // Register the OTA update URI handler
         err = httpd_register_uri_handler(server, &ota_update_uri);
         ESP_LOGI(TAG, "Register %s => %s", ota_update_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t reset_uri = {
             .uri      = "/reset",  // URL endpoint
@@ -182,6 +167,58 @@ void run_http_server(void *param) {
         // Register the reset URI handler
         err = httpd_register_uri_handler(server, &reset_uri);
         ESP_LOGI(TAG, "Register %s => %s", reset_uri.uri, esp_err_to_name(err));
+        h_count++;
+
+        /** STATIC Handlers **/
+        // Register the static file streaming handler
+        httpd_uri_t static_uri = {
+            .uri        = "/static/*",
+            .method     = HTTP_GET,
+            .handler    = static_stream_handler,
+            .user_ctx   = NULL
+        };
+
+        err = httpd_register_uri_handler(server, &static_uri);
+        ESP_LOGI(TAG, "Register %s => %s", static_uri.uri, esp_err_to_name(err));
+        h_count++;
+#endif
+
+#if _DEVICE_ENABLE_HTTP_API
+        ESP_LOGI(TAG, "Registering HTTP API handlers...");
+        /** HTTP API Handlers **/
+        // Register the /update-relay POST handler
+        httpd_uri_t update_relay_uri = {
+            .uri      = "/api/relay/update",   
+            .method   = HTTP_POST,         // Only accept POST requests
+            .handler  = update_relay_post_handler, // Handler function
+            .user_ctx = NULL              
+        };
+
+        err = httpd_register_uri_handler(server, &update_relay_uri);
+        ESP_LOGI(TAG, "Register %s => %s", update_relay_uri.uri, esp_err_to_name(err));
+        h_count++;
+
+        // Register the status web service handler
+        httpd_uri_t status_webserver_get_uri = {
+            .uri       = "/api/status",
+            .method    = HTTP_GET,
+            .handler   = status_data_handler,
+            .user_ctx  = NULL
+        };
+        err = httpd_register_uri_handler(server, &status_webserver_get_uri);
+        ESP_LOGI(TAG, "Register %s => %s", status_webserver_get_uri.uri, esp_err_to_name(err));
+        h_count++;
+
+        // Register the relays data web service handler
+        httpd_uri_t relays_data = {
+            .uri      = "/api/relays",           
+            .method   = HTTP_GET,                
+            .handler  = relays_data_get_handler, 
+            .user_ctx = NULL                     
+        };
+        err = httpd_register_uri_handler(server, &relays_data);
+        ESP_LOGI(TAG, "Register %s => %s", relays_data.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t setting_update_uri = {
             .uri      = "/api/setting/update",  // URL endpoint
@@ -193,6 +230,7 @@ void run_http_server(void *param) {
         // Register the setting update URI handler
         err = httpd_register_uri_handler(server, &setting_update_uri);
         ESP_LOGI(TAG, "Register %s => %s", setting_update_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t setting_get_all_uri = {
             .uri      = "/api/setting/get/all",  // URL endpoint
@@ -204,6 +242,7 @@ void run_http_server(void *param) {
         // Register the setting update URI handler
         err = httpd_register_uri_handler(server, &setting_get_all_uri);
         ESP_LOGI(TAG, "Register %s => %s", setting_get_all_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t setting_get_one_uri = {
             .uri      = "/api/setting/get",
@@ -214,6 +253,7 @@ void run_http_server(void *param) {
 
         err = httpd_register_uri_handler(server, &setting_get_one_uri);
         ESP_LOGI(TAG, "Register %s => %s", setting_get_one_uri.uri, esp_err_to_name(err));
+        h_count++;
 
         httpd_uri_t get_ca_cert_uri = {
             .uri      = "/api/cert/get",
@@ -224,21 +264,11 @@ void run_http_server(void *param) {
 
         err = httpd_register_uri_handler(server, &get_ca_cert_uri);
         ESP_LOGI(TAG, "Register %s => %s", get_ca_cert_uri.uri, esp_err_to_name(err));
-
-        // Register the static file streaming handler
-        httpd_uri_t static_uri = {
-            .uri        = "/static/*",
-            .method     = HTTP_GET,
-            .handler    = static_stream_handler,
-            .user_ctx   = NULL
-        };
-
-        err = httpd_register_uri_handler(server, &static_uri);
-        ESP_LOGI(TAG, "Register %s => %s", static_uri.uri, esp_err_to_name(err));
-        
-        ESP_LOGI(TAG, "HTTP handlers registered. Server ready!");
+        h_count++;
+#endif     
+        ESP_LOGI(TAG, "%d HTTP handlers registered. Server ready!", h_count);
     } else {
-        ESP_LOGI(TAG, "Error starting server!");
+        ESP_LOGE(TAG, "Error starting HTTPD server!");
         return;
     }
 
@@ -2475,7 +2505,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
  * @param req The HTTP request object.
  * @return ESP_OK on successful request handling, or an error code otherwise.
  */
-esp_err_t ota_post_handler(httpd_req_t *req) {
+static esp_err_t ota_post_handler(httpd_req_t *req) {
     char *ota_url = NULL;
 
     // Allocate memory dynamically for template and output
@@ -2567,7 +2597,7 @@ esp_err_t ota_post_handler(httpd_req_t *req) {
  * @param req The HTTP request object.
  * @return ESP_OK on successful request handling, or an error code otherwise.
  */
-esp_err_t reset_post_handler(httpd_req_t *req) {
+static esp_err_t reset_post_handler(httpd_req_t *req) {
 
     // Extract form data
     char buf[1024];
