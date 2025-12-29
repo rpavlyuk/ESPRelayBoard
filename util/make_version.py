@@ -39,3 +39,17 @@ with open(VERSION_H_FILE, 'w') as file:
     file.write(version_content)
 
 print(f"Version header file generated at {VERSION_H_FILE}")
+
+# Write content to build_info.json in ./build/ directory
+BUILD_INFO_FILE = os.path.join(SOURCE_FOLDER_ROOT_PATH, 'build', 'build_info.json')
+os.makedirs(os.path.dirname(BUILD_INFO_FILE), exist_ok=True)
+build_info_content = f"""{{
+    "DEVICE_SW_BUILD_NUM": "{DEVICE_SW_BUILD_NUM}",
+    "DEVICE_SW_VERSION_NUM": "{DEVICE_SW_VERSION_NUM}",
+    "DEVICE_SW_VERSION": "{DEVICE_SW_VERSION}"
+}}
+"""
+with open(BUILD_INFO_FILE, 'w') as file:
+    file.write(build_info_content)
+
+print(f"Build info file generated at {BUILD_INFO_FILE}")

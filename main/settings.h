@@ -125,7 +125,7 @@
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
-#define S_DEFAULT_OTA_UPDATE_URL                 "http://localhost:8080/ota/relayboard.bin"
+#define S_DEFAULT_OTA_UPDATE_URL                 "https://dist-repo-public.s3.eu-central-1.amazonaws.com/firmware/ESPRelayBoard/latest/ESPRelayBoard.bin"
 
 #define S_DEFAULT_STATUS_MEMGUARD_MODE          MEMGRD_MODE_DISABLED       // 0 - Disabled, 1 - Warn, 2 - Restart
 #define S_DEFAULT_STATUS_MEMGUARD_THRESHOLD     65536    // 64k in bytes

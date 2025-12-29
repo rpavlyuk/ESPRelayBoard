@@ -1,0 +1,8 @@
+[project]
+name = "push-repo"
+version = "1.0.0"
+
+# Register the extension under the `idf_extension` group,
+# so ESP-IDF can automatically discover it
+[project.entry-points.idf_extension]
+push_repo = "push_repo.esp_ext:action_extensions"

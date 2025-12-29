@@ -1165,6 +1165,19 @@ esp_err_t check_ota_partitions(void) {
  * @note: This function should be called as a FreeRTOS task
  */
 void ota_update_task(void *param) {
+
+#if _DEVICE_ENABLE_STATUS_MEMGUARD
+    // Store current memory guard mode
+    uint16_t current_memguard_mode = S_DEFAULT_STATUS_MEMGUARD_MODE;
+    if (nvs_read_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, &current_memguard_mode) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read current memory guard mode from NVS");
+    } else {
+        ESP_LOGD(TAG, "Current memory guard mode: %i", current_memguard_mode);
+    }
+    // Disable memory guard for OTA update task
+    ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, MEMGRD_MODE_DISABLED)); // Disable memguard
+    ESP_LOGI(TAG, "Memory guard disabled for OTA update task");
+#endif
     ota_update_param_t *update_param = (ota_update_param_t *)param;
     esp_err_t ret = perform_ota_update(update_param->ota_url);
     
@@ -1191,6 +1204,11 @@ void ota_update_task(void *param) {
         system_reboot();
     } else {
         ESP_LOGE(TAG, "OTA update failed with error code: %s", esp_err_to_name(ret));
+#if _DEVICE_ENABLE_STATUS_MEMGUARD
+        // Restore previous memory guard mode
+        ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, current_memguard_mode));
+        ESP_LOGI(TAG, "Memory guard mode restored to %i", current_memguard_mode);
+#endif
     }
 
     free(update_param);  // Free the allocated memory for parameters
