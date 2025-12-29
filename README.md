@@ -42,16 +42,17 @@ The device supports two types of units:
 - **Web Interface**: Provides a web-based user interface for configuration, control and monitoring.
 - **Web API**: Simple JSON API is in place should you want to integrate the device into your custom infractucture projects.
 - **OTA (over the air) Firmware Update**: Trigger firmware update via WEB interface from a provided URL.
-- **Remote/Network Logging**: The device supports remote logging using the Syslog protocol (RFC 3164 / RFC 5424) over UDP or TCP
+- **Remote/Network Logging**: The device supports remote logging using the Syslog protocol (RFC 3164 / RFC 5424) over UDP or TCP.
+- **MemGuard**: Automatically reboot device if it runs out of free memory to prevent device stall.
 
 ## Prerequisites
 To get started, you will need:
 - **Hardware**:
   - ESP32, ESP32-C6 or ESP32-S3 microcontroller (all have been tested) with at least 4Mb flash.
   - Relay. E.g., SRD-05VDC-SL-C-based mechanical relay module.
-  - **OR** ESP32-based relay board with 4Mb flash in a single-board composition. Most of such board use `ESP32` variant of ESP32. 
+  - **OR** ESP32-based relay board with minimum 4Mb flash in a single-board composition. Most of such boards use `ESP32` variant of ESP32. 
 - **Software**:
-  - ESP-IDF framework (version 5.4 or higher recommended installed and configured).
+  - ESP-IDF framework (version 5.5 or higher recommended installed and configured).
   - Operating system: `Linux` (tested, recommended), `macOS` (tested, recommended), `Windows` (tested)
 
 ## Tested Relay Boards / Configurations
@@ -202,6 +203,9 @@ Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup
   * `Logging Host`: IP or hostname to send logs to. Must be within the same LAN when using UDP broadcast address.
   * `Logging Port`: UDP/TCP port on the target host.
   * `Keep Stdout Logging`: keep sending messages to STDOUT (console) even when network logging is enabled.
+* Memguard parameters:
+  * `Memory Guard Mode`: Either disable memguard at all OR set corresponding system reaction: warning only or full reboot.
+  * `Memory Guard Threshold (bytes)`: Free heap memory in bytes which is considered as too low, so the action must be taken. Default is 65535 (64k). Setting the threashhold too high (90k+) may put the device in endless reboot loop. However, there's a prevention machanism: `memguard` actions are only taken 3 minutes since boot, so you have time to change the threashhold or disable `memguard` at all.
 * `CA / Root Certificates`: PEM formatted SSL root/intermediate certificate. Used by MQTTS connection and HTTPS firmware OTA update. You can separately configure the certificate for MQTT and for OTA update via HTTPS.
 
 Changing number of sensors or relays requires a restart of the device. Use button `Reboot Device` at the bottom of configuration page.
