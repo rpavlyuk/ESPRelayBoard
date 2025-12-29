@@ -380,7 +380,36 @@ esp_err_t base_settings_init() {
             return ESP_FAIL;
         }
     }
-    
+
+    // Parameter: Memory guard mode
+    uint16_t memguard_mode;
+    if (nvs_read_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, &memguard_mode) == ESP_OK) {
+        ESP_LOGI(TAG, "Found parameter %s in NVS: %i", S_KEY_STATUS_MEMGUARD_MODE, memguard_mode);  
+    } else {
+        ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_STATUS_MEMGUARD_MODE);
+        memguard_mode = S_DEFAULT_STATUS_MEMGUARD_MODE;
+        if (nvs_write_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, memguard_mode) == ESP_OK) {
+            ESP_LOGI(TAG, "Successfully created key %s with value %i", S_KEY_STATUS_MEMGUARD_MODE, memguard_mode);
+        } else {
+            ESP_LOGE(TAG, "Failed creating key %s with value %i", S_KEY_STATUS_MEMGUARD_MODE, memguard_mode);
+            return ESP_FAIL;
+        }
+    }
+    // Parameter: Memory guard threshold
+    uint32_t memgrd_trshld;
+    if (nvs_read_uint32(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_THRESHOLD, &memgrd_trshld) == ESP_OK) {
+        ESP_LOGI(TAG, "Found parameter %s in NVS: %li", S_KEY_STATUS_MEMGUARD_THRESHOLD, memgrd_trshld);
+    } else {
+        ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_STATUS_MEMGUARD_THRESHOLD);
+        memgrd_trshld = S_DEFAULT_STATUS_MEMGUARD_THRESHOLD;
+        if (nvs_write_uint32(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_THRESHOLD, memgrd_trshld) == ESP_OK) {
+            ESP_LOGI(TAG, "Successfully created key %s with value %li", S_KEY_STATUS_MEMGUARD_THRESHOLD, memgrd_trshld);
+        } else {
+            ESP_LOGE(TAG, "Failed creating key %s with value %li", S_KEY_STATUS_MEMGUARD_THRESHOLD, memgrd_trshld);
+            return ESP_FAIL;
+        }
+    }
+
     return ESP_OK;
 
 }
@@ -1775,6 +1804,55 @@ static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, 
                    type,
                    0,
                    1);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+
+/**
+ * @brief: Handle Memory Guard mode setting validation handler
+ * 
+ * @param v: cJSON object containing the new Memory Guard mode value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_memgrd_mode(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int mode = (int)v->valuedouble;
+
+    if (mode != MEMGRD_MODE_DISABLED && mode != MEMGRD_MODE_WARN && mode != MEMGRD_MODE_RESTART) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "memgrd_mode invalid (%d). Allowed: %d, %d, %d",
+                   mode,
+                   MEMGRD_MODE_DISABLED,
+                   MEMGRD_MODE_WARN,
+                   MEMGRD_MODE_RESTART);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+
+/**
+ * @brief: Handle Memory Guard threshold setting validation handler
+ * 
+ * @param v: cJSON object containing the new Memory Guard threshold value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_memgrd_trshld(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int threshold = (int)v->valuedouble;
+
+    if (threshold < MEMGUARD_THRESHOLD_MIN || threshold > MEMGUARD_THRESHOLD_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "memgrd_trshld invalid (%d). Allowed: %d..%d",
+                   threshold,
+                   MEMGUARD_THRESHOLD_MIN,
+                   MEMGUARD_THRESHOLD_MAX);
         return ESP_ERR_INVALID_ARG;
     }
 

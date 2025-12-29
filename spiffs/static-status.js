@@ -30,6 +30,18 @@
 
         let time_since_boot = formatTimeSinceBoot(response.status.time_since_boot);
         $("#val_time_since_boot").text(time_since_boot);
+
+        if (response.status.memguard_threshold !== undefined && response.status.memguard_mode !== undefined) {
+          if (response.status.memguard_mode > 0) {
+ 
+            $("#val_memguard_threshold").text(response.status.memguard_threshold);
+            // unhide the memguard row
+            $("#row_memguard_threshold").css("display", "table-row");
+          } else {
+            // hide the memguard row
+            $("#row_memguard_threshold").css("display", "none");
+          }
+        }
       },
       error: function () {
         console.error("Failed to fetch device status data");

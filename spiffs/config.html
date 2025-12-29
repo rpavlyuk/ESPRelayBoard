@@ -86,6 +86,14 @@
                   <option value="1">Enabled</option>
                 </select> <i>Recommended to keep <b>Enabled</b> for debugging purposes</i>
             </td></tr>
+            <tr><td><b>Memory Guard</b></td><td></td></tr>
+            <tr><td>Memory Guard Mode:</td><td>
+                <select name="memgrd_mode" id="memgrd_mode">
+                  <option value="0">Memguard Disabled</option>
+                  <option value="1">Warn when threshold reached</option>
+                  <option value="2">Reboot when threshold reached</option>
+                </select>
+            <tr><td>Memory Guard Threshold (bytes):</td><td><input type="number" step="1024" id="memgrd_trshld" name="memgrd_trshld" value="{VAL_MEMGUARD_THRESHOLD}" min="{MIN_MEMGUARD_THRESHOLD}" max="{MAX_MEMGUARD_THRESHOLD}"> ({MIN_MEMGUARD_THRESHOLD} - {MAX_MEMGUARD_THRESHOLD}) <i>Recommended to set at least {MIN_MEMGUARD_THRESHOLD} bytes above the minimum required for your application</i></td></tr>
           </table>
         <input type="submit" value="Save Settings">
         <input type="reset" value="Reset Changes">

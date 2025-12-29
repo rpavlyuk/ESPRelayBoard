@@ -738,6 +738,27 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
     }
+#if _DEVICE_ENABLE_STATUS_MEMGUARD
+    // memguard threshold
+    snprintf(topic, sizeof(topic), "%s/%s/system/memguard_threshold", mqtt_prefix, device_id);
+    snprintf(value, sizeof(value), "%u", status->memguard_threshold);
+    ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
+    msg_id = esp_mqtt_client_publish(mqtt_client,   topic, value, 0, 1, 0);
+    if (msg_id < 0) {
+        ESP_LOGW(TAG, "Topic %s not published", topic);
+        is_error = true;
+    }
+
+    // memguard mode
+    snprintf(topic, sizeof(topic), "%s/%s/system/memguard_mode", mqtt_prefix, device_id);
+    snprintf(value, sizeof(value), "%u", status->memguard_mode);
+    ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    if (msg_id < 0) {
+        ESP_LOGW(TAG, "Topic %s not published", topic);
+        is_error = true;
+    }
+#endif
 
     // Free allocated resources
     free(mqtt_prefix);

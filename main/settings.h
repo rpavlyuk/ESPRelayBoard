@@ -41,6 +41,13 @@
 
 #define OTA_UPDATE_URL_LENGTH  256
 
+#define MEMGUARD_THRESHOLD_MIN        16384     // 16k
+#define MEMGUARD_THRESHOLD_MAX        131072    // 128k
+
+#define MEMGRD_MODE_DISABLED    0
+#define MEMGRD_MODE_WARN        1
+#define MEMGRD_MODE_RESTART     2
+
 /**
  * General constants
  */
@@ -84,6 +91,10 @@
 #define S_KEY_NET_LOGGING_PORT     "net_log_port"
 #define S_KEY_NET_LOGGING_KEEP_STDOUT "net_log_stdout"
 
+#define S_KEY_STATUS_MEMGUARD_MODE          "memgrd_mode"
+#define S_KEY_STATUS_MEMGUARD_THRESHOLD     "memgrd_trshld"
+
+
 /**
  * Settings default values
  */
@@ -115,6 +126,9 @@
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
 #define S_DEFAULT_OTA_UPDATE_URL                 "http://localhost:8080/ota/relayboard.bin"
+
+#define S_DEFAULT_STATUS_MEMGUARD_MODE          MEMGRD_MODE_DISABLED       // 0 - Disabled, 1 - Warn, 2 - Restart
+#define S_DEFAULT_STATUS_MEMGUARD_THRESHOLD     65536    // 64k in bytes
 
 
 /**
@@ -189,6 +203,8 @@ static esp_err_t handle_setting_relay_sn_count(const char *key, const cJSON *v, 
 static esp_err_t handle_setting_net_log_type(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_net_log_port(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_memgrd_mode(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_memgrd_trshld(const char *key, const cJSON *v, setting_update_msg_t *out);
 
 /**
  * @brief: Setting handlers mapping table
@@ -211,6 +227,8 @@ static const setting_entry_t s_settings[] = {
     { S_KEY_NET_LOGGING_HOST, NULL, NET_LOGGING_HOST_LENGTH, SETTING_TYPE_STRING },
     { S_KEY_NET_LOGGING_PORT, handle_setting_net_log_port, 0, SETTING_TYPE_UINT16 },
     { S_KEY_NET_LOGGING_KEEP_STDOUT, handle_setting_net_log_stdout, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_STATUS_MEMGUARD_MODE, handle_setting_memgrd_mode, 0, SETTING_TYPE_UINT16 },
+    { S_KEY_STATUS_MEMGUARD_THRESHOLD, handle_setting_memgrd_trshld, 0, SETTING_TYPE_UINT32 },
 };
 
 /**

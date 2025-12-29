@@ -26,7 +26,7 @@
 #define _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_CHECK    (false && _DEVICE_ENABLE_STATUS)
 #define _DEVICE_ENABLE_STATUS_SYSINFO_GPIO          (false && _DEVICE_ENABLE_STATUS)
 
-#define _DEVICE_ENABLE_STATUS_SAFEGUARD             (false && _DEVICE_ENABLE_STATUS)
+#define _DEVICE_ENABLE_STATUS_MEMGUARD              (true && _DEVICE_ENABLE_STATUS)
 
 
 static const char *TAG = "RelayBoard";

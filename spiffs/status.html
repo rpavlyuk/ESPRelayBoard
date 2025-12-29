@@ -30,10 +30,11 @@
     <div class="container">
         <h3>Device Status</h3>
         <div class="container">
-            <table border="0">          
-                <tr><td>Free Heap</td><td><span id="val_free_heap"></span> bytes</td></tr>
-                <tr><td>Minimum Free Heap</td><td><span id="val_min_free_heap"></span> bytes</td></tr>
-                <tr><td>Time Since Boot</td><td><span id="val_time_since_boot"></span></td></tr>
+            <table border="0">
+                <tr id="row_memguard_threshold" style="display: none;"><td>Memguard Threshold</td><td style="padding-left: 10px;"><span id="val_memguard_threshold"></span> bytes</td></tr>       
+                <tr><td>Free Heap</td><td style="padding-left: 10px;"><span id="val_free_heap"></span> bytes</td></tr>
+                <tr><td>Minimum Free Heap</td><td style="padding-left: 10px;"><span id="val_min_free_heap"></span> bytes</td></tr>
+                <tr><td>Time Since Boot</td><td style="padding-left: 10px;"><span id="val_time_since_boot"></span></td></tr>
             </table>
         </div>
     </div>

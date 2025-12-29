@@ -169,6 +169,10 @@ $(function () {
     setInputByName("net_log_host",   getField(data, "net_log_host"));
     setNumberByName("net_log_port",  getField(data, "net_log_port"));
     setSelectById("net_log_stdout",  getField(data, "net_log_stdout"));
+
+    // memguard
+    setSelectById("memgrd_mode",     getField(data, "memgrd_mode"));
+    setNumberByName("memgrd_trshld", getField(data, "memgrd_trshld"));
   }
 
   function loadAllSettings() {
