@@ -89,17 +89,17 @@ void udp_client(void *pvParameters)
         return;
     }
 
-    // Create socket with backoff
-    int fd = -1;
-    int backoff_ms = 250;
+    // Socket create backoff (initial + after hard failures)
     const int backoff_max_ms = 5000;
 
+    int fd = -1;
+    int backoff_ms = 250;
     while (fd < 0) {
         fd = open_udp_socket();
         if (fd >= 0) break;
 
         vTaskDelay(pdMS_TO_TICKS(backoff_ms));
-        if (backoff_ms < backoff_max_ms) backoff_ms *= 2;
+        backoff_ms = (backoff_ms < backoff_max_ms) ? (backoff_ms * 2) : backoff_max_ms;
         if (backoff_ms > backoff_max_ms) backoff_ms = backoff_max_ms;
     }
 
@@ -108,22 +108,33 @@ void udp_client(void *pvParameters)
 
     int send_fail_streak = 0;
 
+    // Failure backoff for sendto() errors (prevents WDT when network is down)
+    int fail_backoff_ms = 50;
+    const int fail_backoff_max_ms = 2000;
+
+    // Periodic yield even on success (prevents starving IDLE under constant backlog)
+    uint32_t ok_send_counter = 0;
+    const uint32_t ok_yield_every = 50;
+
     while (1) {
 #if CONFIG_NET_LOGGING_USE_RINGBUFFER
         size_t received = 0;
         char *buffer = (char *)xRingbufferReceive(xRingBufferUDP, &received, portMAX_DELAY);
         if (!buffer || received == 0) {
+            // Defensive: should not happen with portMAX_DELAY, but don't spin if it does.
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 #else
         char buffer[xItemSize];
         size_t received = xMessageBufferReceive(xMessageBufferUDP, buffer, sizeof(buffer), portMAX_DELAY);
         if (received == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
 #endif
 
-        // UDP: sendto() should send full datagram or fail, but we still handle short returns safely
+        // UDP: should send full datagram or fail; still handle short returns
         int ret = lwip_sendto(fd, buffer, received, 0, (struct sockaddr *)&addr, sizeof(addr));
 
 #if CONFIG_NET_LOGGING_USE_RINGBUFFER
@@ -132,10 +143,18 @@ void udp_client(void *pvParameters)
 #endif
 
         if (ret == (int)received) {
+            // success path
             send_fail_streak = 0;
+            fail_backoff_ms = 50; // reset failure backoff on success
+
+            if ((++ok_send_counter % ok_yield_every) == 0) {
+                // Let IDLE / other tasks run under sustained logging load
+                taskYIELD();                 // or: vTaskDelay(pdMS_TO_TICKS(1));
+            }
             continue;
         }
 
+        // failure path (ret < 0 or short write)
         if (ret < 0) {
             ESP_LOGW(TAG, "sendto() failed: errno=%d (streak=%d)", errno, send_fail_streak + 1);
         } else {
@@ -145,10 +164,17 @@ void udp_client(void *pvParameters)
 
         send_fail_streak++;
 
-        // Close and recreate socket on failures
+        // Close socket on failures
         if (fd != -1) {
             (void)lwip_close(fd);
             fd = -1;
+        }
+
+        // Back off a bit BEFORE reconnect to avoid busy-looping and starving IDLE
+        vTaskDelay(pdMS_TO_TICKS(fail_backoff_ms));
+        fail_backoff_ms *= 2;
+        if (fail_backoff_ms > fail_backoff_max_ms) {
+            fail_backoff_ms = fail_backoff_max_ms;
         }
 
         // If failures persist, re-resolve hostname periodically (helps with DNS/IP changes)
@@ -160,13 +186,14 @@ void udp_client(void *pvParameters)
             }
         }
 
-        // Recreate socket with backoff
+        // Recreate socket with backoff (do not spin)
         int bo = 250;
         while (fd < 0) {
             fd = open_udp_socket();
             if (fd >= 0) break;
+
             vTaskDelay(pdMS_TO_TICKS(bo));
-            if (bo < backoff_max_ms) bo *= 2;
+            bo = (bo < backoff_max_ms) ? (bo * 2) : backoff_max_ms;
             if (bo > backoff_max_ms) bo = backoff_max_ms;
         }
     }
