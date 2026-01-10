@@ -97,7 +97,7 @@ void status_task(void *pvParameters) {
         if (memguard_mode == MEMGRD_MODE_DISABLED) {
             // Disabled
             consecutive_below_threshold_count = 0;
-            ESP_LOGD(STATUS_TAG, "Memory guard is DISABLED. No action taken.");
+            ESP_LOGI(STATUS_TAG, "Memory guard is DISABLED in settings (%u). No action taken.", memguard_mode);
         } else {    
             uint32_t memguard_threshold = S_DEFAULT_STATUS_MEMGUARD_THRESHOLD;
             ESP_ERROR_CHECK(nvs_read_uint32(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_THRESHOLD, &memguard_threshold));

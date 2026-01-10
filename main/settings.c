@@ -1200,6 +1200,12 @@ void ota_update_task(void *param) {
                 ESP_LOGE(TAG, "Failed to generate Storage Update URL");
             }
         }
+#if _DEVICE_ENABLE_STATUS_MEMGUARD
+        // Restore previous memory guard mode
+        ESP_ERROR_CHECK(nvs_write_uint16(S_NAMESPACE, S_KEY_STATUS_MEMGUARD_MODE, current_memguard_mode));
+        ESP_LOGI(TAG, "Memory guard mode restored to %i", current_memguard_mode);
+
+#endif
         // Reboot the device to apply the update
         system_reboot();
     } else {
