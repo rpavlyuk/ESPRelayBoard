@@ -1508,7 +1508,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     char *mem = (char *)malloc(total);
     if (!mem) {
-        ESP_LOGE(TAG, "OOM: relays handler needs %u bytes (free=%u, min_free=%u)",
+        ESP_LOGE(TAG, "OOM: page memory - relays handler needs %u bytes (free=%u, min_free=%u)",
                  (unsigned)total,
                  (unsigned)esp_get_free_heap_size(),
                  (unsigned)esp_get_minimum_free_heap_size());
@@ -1533,7 +1533,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     char *relay_table_mem = (char *)malloc(total_relay_table_mem);
     if (!relay_table_mem) {
-        ESP_LOGE(TAG, "OOM: relays handler needs %u bytes (free=%u, min_free=%u)",
+        ESP_LOGE(TAG, "OOM: relays list - relays handler needs %u bytes (free=%u, min_free=%u)",
                  (unsigned)total_relay_table_mem,
                  (unsigned)esp_get_free_heap_size(),        
                  (unsigned)esp_get_minimum_free_heap_size());
@@ -1610,11 +1610,14 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     // now, let's iterate via all relays stored in the memory and try load/initiate them
     for (int i_channel = 0; i_channel < relay_ch_count; i_channel++) {
-        relay_unit_t *relay = malloc(sizeof(relay_unit_t));
+        // relay_unit_t *relay = malloc(sizeof(relay_unit_t));
+        relay_unit_t *relay = NULL;
+        /*
         if (relay == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for relay entry object");
             return ESP_FAIL; // Handle error accordingly
         }
+        */
 
         char *relay_nvs_key = get_relay_nvs_key(i_channel);
         if (relay_nvs_key == NULL) {
@@ -1623,8 +1626,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
             return ESP_FAIL; // Handle error accordingly
         }
 
-        if (load_relay_actuator_from_nvs(relay_nvs_key, relay) == ESP_OK) {
-            ESP_LOGI(TAG, "Found relay channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+        if (get_relay_actuator_from_memory_by_key(relay_nvs_key, &relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Found relay channel %i stored in memory at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
 
             // Step 1: Copy string relay_table_entry_tpl to relay_table_entry
             strcpy(relay_table_entry, relay_table_entry_tpl);
@@ -1662,7 +1665,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
         }
 
         free(relay_nvs_key);
-        free(relay);
+        // free(relay);
     }
 
     // Insert the relays list into the main HTML template
@@ -1675,11 +1678,14 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
 
     // now, let's iterate via all relays stored in the memory and try load/initiate them
     for (int i_channel = 0; i_channel < relay_sn_count; i_channel++) {
-        relay_unit_t *relay = malloc(sizeof(relay_unit_t));
+        // relay_unit_t *relay = malloc(sizeof(relay_unit_t));
+        relay_unit_t *relay = NULL;
+        /*
         if (relay == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for relay entry object");
             return ESP_FAIL; // Handle error accordingly
         }
+        */
 
         char *relay_nvs_key = get_contact_sensor_nvs_key(i_channel);
         if (relay_nvs_key == NULL) {
@@ -1688,8 +1694,8 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
             return ESP_FAIL; // Handle error accordingly
         }
 
-        if (load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
-            ESP_LOGI(TAG, "Found sensor channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+        if (get_relay_sensor_from_memory_by_key(relay_nvs_key, &relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Found sensor channel %i stored in memory at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
 
             // Step 1: Copy string relay_table_entry_tpl to relay_table_entry
             strcpy(relay_table_entry, relay_table_entry_tpl);
@@ -1727,7 +1733,7 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
         }
 
         free(relay_nvs_key);
-        free(relay);
+        // free(relay);
     }  
 
     // Insert the relays list into the main HTML template
@@ -1836,22 +1842,22 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     }
 
     // Load relay from NVS based on the relay_key
-    relay_unit_t relay;
+    relay_unit_t *relay = NULL;
     if (relay_type == RELAY_TYPE_SENSOR) {
-        err = load_relay_sensor_from_nvs(relay_key, &relay);
+        err = get_relay_sensor_from_memory_by_key(relay_key, &relay);
     } else {
-        err = load_relay_actuator_from_nvs(relay_key, &relay);
+        err = get_relay_actuator_from_memory_by_key(relay_key, &relay);
     }
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load relay from NVS");
+        ESP_LOGE(TAG, "Failed to load relay from memory using key: %s", relay_key);
         cJSON_Delete(json);
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
     // capture old gpio_pin
-    int gpio_pin_old = relay.gpio_pin;
+    int gpio_pin_old = relay->gpio_pin;
 
     // Validate GPIO pin if provided in the JSON
     cJSON *relay_gpio_pin_item = cJSON_GetObjectItem(data, "relay_gpio_pin");
@@ -1867,34 +1873,34 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         }
 
         // if we provide a new GPIO pin -- make sure it is not use
-        if (gpio_pin_old != relay.gpio_pin && is_gpio_pin_in_use(gpio_pin)) {
+        if (gpio_pin_old != relay->gpio_pin && is_gpio_pin_in_use(gpio_pin)) {
             ESP_LOGE(TAG, "GPIO pin %d is in use", gpio_pin);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "GPIO pin is in use");
             cJSON_Delete(json);
             return ESP_FAIL;
         }
-        relay.gpio_pin = gpio_pin;
+        relay->gpio_pin = gpio_pin;
     }
 
     // Update relay properties based on the JSON data (if provided)
     cJSON *relay_state_item = cJSON_GetObjectItem(data, "relay_state");
     if (relay_state_item != NULL && cJSON_IsBool(relay_state_item)) {
-        relay.state = relay_state_item->valueint ? RELAY_STATE_ON : RELAY_STATE_OFF;
+        relay->state = relay_state_item->valueint ? RELAY_STATE_ON : RELAY_STATE_OFF;
     }
 
     cJSON *relay_enabled_item = cJSON_GetObjectItem(data, "relay_enabled");
     if (relay_enabled_item != NULL && cJSON_IsBool(relay_enabled_item)) {
-        relay.enabled = relay_enabled_item->valueint;
+        relay->enabled = relay_enabled_item->valueint;
     }
 
     cJSON *relay_inverted_item = cJSON_GetObjectItem(data, "relay_inverted");
     if (relay_inverted_item != NULL && cJSON_IsBool(relay_inverted_item)) {
-        relay.inverted = relay_inverted_item->valueint;
+        relay->inverted = relay_inverted_item->valueint;
     }
 
     // save to NVS: actuators -- via setting the state, sensors -- just saving
-    if (relay.type == RELAY_TYPE_ACTUATOR) {
-        err = relay_set_state(&relay, relay.state, true);
+    if (relay->type == RELAY_TYPE_ACTUATOR) {
+        err = relay_set_state(relay, relay->state, true);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to set relay state and save it to NVS");
             cJSON_Delete(json);
@@ -1903,7 +1909,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         } 
     } else {
         // Save the updated sensor to NVS using relay_key
-        err = save_relay_to_nvs(relay_key, &relay);
+        err = save_relay_to_nvs(relay_key, relay);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save relay to NVS");
             cJSON_Delete(json);
@@ -1912,17 +1918,17 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
         }
 
         // if pin changed -- re-assign the ISR
-        if (gpio_pin_old != relay.gpio_pin) {
-            err = relay_gpio_init(&relay);
+        if (gpio_pin_old != relay->gpio_pin) {
+            err = relay_gpio_init(relay);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to init new pin number %d when updating the sensor unit", relay.gpio_pin);
+                ESP_LOGE(TAG, "Failed to init new pin number %d when updating the sensor unit", relay->gpio_pin);
                 cJSON_Delete(json);
                 httpd_resp_send_500(req);
                 return ESP_FAIL;
             } 
-            err = relay_sensor_register_isr(&relay);
+            err = relay_sensor_register_isr(relay);
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to register ISR for new pin number %d when updating the sensor unit", relay.gpio_pin);;
+                ESP_LOGE(TAG, "Failed to register ISR for new pin number %d when updating the sensor unit", relay->gpio_pin);;
                 cJSON_Delete(json);
                 httpd_resp_send_500(req);
                 return ESP_FAIL;
@@ -1931,7 +1937,7 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     }
 
     // Serialize updated relay data for the response
-    char *relay_json_str = serialize_relay_unit(&relay);
+    char *relay_json_str = serialize_relay_unit(relay);
     if (relay_json_str == NULL) {
         ESP_LOGE(TAG, "Failed to serialize updated relay");
         cJSON_Delete(json);
@@ -2463,7 +2469,7 @@ static esp_err_t relays_data_get_handler(httpd_req_t *req) {
 
     // Free the relay list memory
     // ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
-    free(relay_list);
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) free(relay_list);
 
     // Create and add a status object to the response
     cJSON *status = cJSON_CreateObject();

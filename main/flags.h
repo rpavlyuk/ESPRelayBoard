@@ -20,6 +20,7 @@ extern EventGroupHandle_t g_sys_events;
 #define BIT_NVS_READY               (1 << 5)
 #define BIT_OTA_IN_PROGRESS         (1 << 6)
 #define BIT_DEVICE_READY            (1 << 7)
+#define BIT_UNITS_IN_MEMORY         (1 << 8)
 
 
 /* Function Prototypes */

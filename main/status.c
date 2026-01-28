@@ -30,6 +30,9 @@ void status_task(void *pvParameters) {
 
         // cycle++;
 
+    // relays in memory dump
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
+
 #if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP
         ESP_LOGI(STATUS_TAG, "--- Heap Information ---");
         // Print heap information
@@ -161,7 +164,7 @@ void dump_all_gpio_configurations() {
     // Retrieve all relay units (both actuators and sensors)
     esp_err_t err = get_all_relay_units(&relay_list, &total_count);
     if (err != ESP_OK) {
-        printf("Failed to get relay units: %s\n", esp_err_to_name(err));
+        ESP_LOGE(STATUS_TAG, "Failed to get relay units: %s\n", esp_err_to_name(err));
         return;
     }
 
@@ -172,14 +175,14 @@ void dump_all_gpio_configurations() {
         if (GPIO_IS_VALID_GPIO(gpio_num)) {
             io_bit_mask |= (1ULL << gpio_num);  // Set the corresponding bit in the mask
         } else {
-            printf("GPIO[%d] is not a valid GPIO.\n", gpio_num);
+            ESP_LOGW(STATUS_TAG, "GPIO[%d] is not a valid GPIO.", gpio_num);
         }
     }
 
     // Dump the configuration using gpio_dump_io_configuration
     err = gpio_dump_io_configuration(stdout, io_bit_mask);
     if (err != ESP_OK) {
-        printf("Failed to dump GPIO configurations: %s\n", esp_err_to_name(err));
+        ESP_LOGE(STATUS_TAG, "Failed to dump GPIO configurations: %s", esp_err_to_name(err));
     }
 
     // Free the relay list
@@ -320,5 +323,5 @@ void dump_current_task() {
     TaskHandle_t current_task = xTaskGetCurrentTaskHandle();  // Get handle of current task
     const char *task_name = pcTaskGetName(current_task);      // Get the task's name
 
-    ESP_LOGI(TAG, "Current task: %s", task_name);      // Log the task name
+    ESP_LOGI(STATUS_TAG, "Current task: %s", task_name);      // Log the task name
 }

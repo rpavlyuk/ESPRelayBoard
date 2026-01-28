@@ -58,6 +58,12 @@ void app_main(void) {
     // Init settings
     ESP_ERROR_CHECK(settings_init());
 
+    // Initialize relay units from NVS: in-memory storage
+    ESP_ERROR_CHECK(init_relay_units_in_memory());
+
+    // relays in memory dump
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
+
     // Register ISRs for the GPIO pins
     ESP_ERROR_CHECK(relay_all_sensors_register_isr());
 

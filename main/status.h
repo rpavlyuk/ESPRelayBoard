@@ -13,7 +13,7 @@
 #define MEMGUARD_BOOT_PROTECTION_TIME_MINUTES 3  // Minimum uptime in minutes before allowing reboot
 #define MEMGUARD_CONSECUTIVE_THRESHOLD_COUNT 3  // Number of consecutive checks below threshold before action
 
-static const char *STATUS_TAG = "D HeapMonitor";
+static const char *STATUS_TAG = "SystemStatus";
 
 /**
  * Sensor readings information

@@ -20,6 +20,18 @@
 #include "mqtt.h"
 #include "status.h"
 
+/* Global arrays for relay units in-memory storage */
+// This implements a heap_1.c like behavior: load once on boot, keep in RAM, use everwhere, free on shutdown
+// The order of array is: first all actuators, then all sensors, as it formed by get_all_relay_units() function.
+static relay_unit_t *s_units;
+
+// Keep counts in memory as well
+static size_t s_units_count;
+static size_t s_relays_count;
+static size_t s_sensors_count;
+
+/* Other global variables */
+// Safe GPIO pins to be used by relays and contact sensors
 const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT] = {4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39};
 
 static QueueHandle_t gpio_evt_queue = NULL;
@@ -159,6 +171,66 @@ relay_unit_t get_sensor_relay(int channel, int pin) {
     ESP_LOGI(TAG, "Contact sensor initialized on channel %d, GPIO pin %d", channel, pin);
     return relay;
 }
+
+/**
+ * @brief: Load all relay units from NVS and initialize in-memory storage
+ * @return esp_err_t result of the operation
+ */
+esp_err_t init_relay_units_in_memory() {
+    esp_err_t err;
+    uint16_t total_count = 0;
+
+    // Load all relay units from NVS
+    err = get_all_relay_units(&s_units, &total_count);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load relay units from NVS");
+        return err;
+    }
+
+    s_units_count = total_count;
+    s_relays_count = 0;
+    s_sensors_count = 0;
+
+    // Count relays and sensors
+    for (int i = 0; i < s_units_count; i++) {
+        if (s_units[i].type == RELAY_TYPE_ACTUATOR) {
+            s_relays_count++;
+        } else if (s_units[i].type == RELAY_TYPE_SENSOR) {
+            s_sensors_count++;
+        }
+    }
+
+    // Set system event bit for units in memory
+    xEventGroupSetBits(g_sys_events, BIT_UNITS_IN_MEMORY);
+
+    ESP_LOGI(TAG, "Initialized %d relay units (%d actuators, %d sensors) from NVS into memory", 
+             s_units_count, s_relays_count, s_sensors_count);
+
+    return ESP_OK;  
+
+}
+
+/**
+ * @brief: Dump all relay units currently stored in memory
+ * @return esp_err_t result of the operation
+ */
+esp_err_t dump_relay_units_in_memory() {
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+        ESP_LOGW(TAG, "Relay units are not loaded in memory.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG, "Dumping %d relay units in memory:", s_units_count);
+    for (int i = 0; i < s_units_count; i++) {
+        relay_unit_t *relay = &s_units[i];
+        const char *type_str = (relay->type == RELAY_TYPE_ACTUATOR) ? "Actuator" : "Sensor";
+        ESP_LOGI(TAG, "Channel: %d, Type: %s, GPIO Pin: %d, State: %d, Inverted: %d, Enabled: %d, GPIO Initialized: %d",
+                 relay->channel, type_str, relay->gpio_pin, relay->state,
+                 relay->inverted, relay->enabled, relay->gpio_initialized);
+    }
+
+    return ESP_OK;
+}   
 
 /**
  * @brief: Init relay unit's (either actuator or sensor) GPIO. It defines GPIO pin parameters according to the relay type (actuator or contact sensor), and calls gpio_config().
@@ -310,32 +382,32 @@ void gpio_event_task(void *arg) {
             }
 
             // Find the sensor associated with the GPIO pin
-            relay_unit_t relay;
+            relay_unit_t *relay = NULL;
             for (int i = 0; i < sensor_count; i++) {
                 if (sensors[i].gpio_pin == evt.gpio_num) {
-                    relay = sensors[i];
+                    relay = &sensors[i];
                     break;
                 }
             }
 
             // Update relay state (if necessary)
-            if (relay.inverted) {
-                relay.state = (current_level == 1) ? RELAY_STATE_OFF : RELAY_STATE_ON;
+            if (relay->inverted) {
+                relay->state = (current_level == 1) ? RELAY_STATE_OFF : RELAY_STATE_ON;
             } else {
-                relay.state = (current_level == 1) ? RELAY_STATE_ON : RELAY_STATE_OFF;
+                relay->state = (current_level == 1) ? RELAY_STATE_ON : RELAY_STATE_OFF;
             }
 
 
             // Get NVS key for the contact sensor and save state to NVS
-            char *relay_nvs_key = get_contact_sensor_nvs_key(relay.channel);
+            char *relay_nvs_key = get_contact_sensor_nvs_key(relay->channel);
             if (relay_nvs_key == NULL) {
-                ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay.channel);
+                ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay->channel);
                 free_relays_array(sensors, sensor_count);  // Free sensor list before exiting
                 continue;
             }
 
-            ESP_LOGI(TAG, ">>> Saving new relay contact state (%d) to NVS. Key (%s), channel (%d), pin (%d)", (int)relay.state, relay_nvs_key, relay.channel, relay.gpio_pin);
-            err = save_relay_to_nvs(relay_nvs_key, &relay);
+            ESP_LOGI(TAG, ">>> Saving new relay contact state (%d) to NVS. Key (%s), channel (%d), pin (%d)", (int)relay->state, relay_nvs_key, relay->channel, relay->gpio_pin);
+            err = save_relay_to_nvs(relay_nvs_key, relay);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to save contact sensor state to NVS");
                 continue;
@@ -345,13 +417,16 @@ void gpio_event_task(void *arg) {
             uint16_t mqtt_connection_mode;
             ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
             if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
-                mqtt_publish_relay_data(&relay);
-                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(&relay), relay.type));
+                // mqtt_publish_relay_data(relay);
+                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
             }
 
             free(relay_nvs_key);  // Free the dynamically allocated NVS key
-            // cleanup
-            free_relays_array(sensors, sensor_count);  // Free sensor list before exiting   
+            // cleanup if no in-memory storage was used
+            if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+                free_relays_array(sensors, sensor_count);
+            }
+            
         }
     }
 }
@@ -445,7 +520,7 @@ esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
     }
 
     // create a working copy
-    relay_unit_t *relay_copy = (relay_unit_t *)malloc(sizeof(relay_unit_t));
+    relay_unit_t *relay_copy = (relay_unit_t *)calloc(1, sizeof(relay_unit_t));
     if (relay_copy == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for relay copy");
         return ESP_ERR_NO_MEM;
@@ -473,7 +548,7 @@ esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay) {
  *
  * @param namespace NVS namespace
  * @param key NVS key
- * @param relay Pointer to the relay unit to be loaded
+ * @param relay Pointer to the relay unit to be loaded, has to be pre-allocated
  * @return esp_err_t result of the NVS operation
  */
 esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay) {
@@ -494,6 +569,57 @@ esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay) {
 
     ESP_LOGI(TAG, "Relay actuator loaded successfully from NVS under key: %s", key);
     return ESP_OK;
+}
+
+/**
+ * @brief Get a relay actuator from in-memory storage
+ * @param channel The relay channel number
+ * @param relay Pointer to the relay unit to be returned
+ * @return esp_err_t result of the operation
+ */
+esp_err_t get_relay_actuator_from_memory_by_channel(int channel, relay_unit_t **relay) {
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (int i = 0; i < s_units_count; i++) {
+        if (s_units[i].type == RELAY_TYPE_ACTUATOR && s_units[i].channel == channel) {
+            // return pointer to the found relay
+            *relay = &s_units[i];
+            return ESP_OK;
+        }
+    }
+
+    ESP_LOGE(TAG, "Actuator relay with channel %d not found in memory.", channel);
+    return ESP_ERR_NOT_FOUND;
+}
+
+/**
+ * @brief Get a relay actuator from in-memory storage by NVS key
+ * @param key The NVS key
+ * @param relay Pointer to the relay unit to be returned
+ * @return esp_err_t result of the operation
+ */
+esp_err_t get_relay_actuator_from_memory_by_key(const char *key, relay_unit_t **relay) {
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (int i = 0; i < s_units_count; i++) {
+        char *nvs_key = get_relay_nvs_key(s_units[i].channel);
+        if (s_units[i].type == RELAY_TYPE_ACTUATOR && nvs_key != NULL && strcmp(nvs_key, key) == 0) {
+            free(nvs_key);
+            // return pointer to the found relay
+            *relay = &s_units[i];
+            return ESP_OK;
+        }
+        free(nvs_key);
+    }
+
+    ESP_LOGE(TAG, "Actuator relay with key %s not found in memory.", key);
+    return ESP_ERR_NOT_FOUND;
 }
 
 /**
@@ -522,6 +648,57 @@ esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay) {
 
     ESP_LOGI(TAG, "Relay sensor loaded successfully from NVS under key: %s", key);
     return ESP_OK;
+}
+
+/**
+ * @brief Get a relay sensor from in-memory storage
+ * @param channel The relay channel number
+ * @param relay Pointer to the relay unit to be returned
+ * @return esp_err_t result of the operation
+ */
+esp_err_t get_relay_sensor_from_memory_by_channel(int channel, relay_unit_t **relay) {
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (int i = 0; i < s_units_count; i++) {
+        if (s_units[i].type == RELAY_TYPE_SENSOR && s_units[i].channel == channel) {
+            // return pointer to the found relay
+            *relay = &s_units[i];
+            return ESP_OK;
+        }
+    }
+
+    ESP_LOGE(TAG, "Sensor relay with channel %d not found in memory.", channel);
+    return ESP_ERR_NOT_FOUND;
+}
+
+/**
+ * @brief Get a relay sensor from in-memory storage by NVS key
+ * @param key The NVS key
+ * @param relay Pointer to the relay unit to be returned
+ * @return esp_err_t result of the operation
+ */
+esp_err_t get_relay_sensor_from_memory_by_key(const char *key, relay_unit_t **relay) {
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
+        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (int i = s_units_count - s_sensors_count; i < s_units_count; i++) {
+        char *nvs_key = get_contact_sensor_nvs_key(s_units[i].channel);
+        if (s_units[i].type == RELAY_TYPE_SENSOR && nvs_key != NULL && strcmp(nvs_key, key) == 0) {
+            free(nvs_key);
+            // return pointer to the found relay
+            *relay = &s_units[i];
+            return ESP_OK;
+        }
+        free(nvs_key);
+    }
+
+    ESP_LOGE(TAG, "Sensor relay with key %s not found in memory.", key);
+    return ESP_ERR_NOT_FOUND;
 }
 
 /**
@@ -750,6 +927,18 @@ void populate_safe_gpio_pins(char *buffer, size_t buffer_size) {
  */
 esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
 
+    // If in-memory bit is set, return the array from in-memory pointers where type is RELAY_TYPE_ACTUATOR
+    // This will be first 's_relays_count' elements from s_units array, so we return pointer to s_units and count as s_relays_count
+    if (xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY) {
+        ESP_LOGI(TAG, "Relay units already in memory, returning existing list of actuators.");
+        *relay_list = s_units;
+        *count = s_relays_count;
+        return ESP_OK;
+    }
+
+    /* If the in-memory bit is not set, read from NVS */
+
+    // Read the number of relay actuators from NVS
     uint16_t stored_relays_count = 0; // number of actually stored and initialized relays
     uint16_t relay_ch_count;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_CHANNEL_COUNT, &relay_ch_count));
@@ -762,7 +951,7 @@ esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
     }
 
     // Allocate memory for the list of relays
-    *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * relay_ch_count);
+    *relay_list = (relay_unit_t *)calloc(relay_ch_count, sizeof(relay_unit_t));
     if (*relay_list == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for relay list");
         return ESP_ERR_NO_MEM;
@@ -796,6 +985,20 @@ esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
  * @return ESP_OK on success, or an error code on failure.
  */
 esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
+
+    // If in-memory bit is set, return the array from in-memory pointers where type is RELAY_TYPE_SENSOR
+    // This will be the next 's_sensors_count' elements from s_units array starting after 's_relays_count', 
+    // so we return pointer to the first sensor element from s_units and count as s_sensors_count
+    if (xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY) {
+        ESP_LOGI(TAG, "Relay units already in memory, returning existing list of contact sensors.");
+        // shift pointer to the first sensor, jumping over the relays
+        *sensor_list = s_units + s_relays_count; // Pointer arithmetic to get to the first sensor
+        *count = s_sensors_count;
+        return ESP_OK;
+    }
+
+    /* If the in-memory bit is not set, read from NVS */
+
     uint16_t stored_sensors_count = 0; // number of actually stored and initialized contact sensors
 
     // Read the number of contact sensors from NVS
@@ -809,7 +1012,7 @@ esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
     }
 
     // Allocate memory for the list of contact sensors
-    *sensor_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*count));
+    *sensor_list = (relay_unit_t *)calloc(*count, sizeof(relay_unit_t));
     if (*sensor_list == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for contact sensor list");
         return ESP_ERR_NO_MEM;
@@ -845,8 +1048,20 @@ esp_err_t get_contact_sensor_list(relay_unit_t **sensor_list, uint16_t *count) {
  * @return ESP_OK on success, or an error code on failure.
  */
 esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) {
+
+    // If in-memory bit is set, return the in-memory list
+    if (xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY) {
+        ESP_LOGI(TAG, "Relay units already in memory, returning existing list.");
+        *relay_list = s_units;
+        *total_count = s_units_count;
+        return ESP_OK;
+    }
+
     relay_unit_t *actuators = NULL, *sensors = NULL;
     uint16_t actuator_count = 0, sensor_count = 0;
+
+    // NOTE: The order of getting actuators and sensors is important to maintain consistency
+    // in the combined list (actuators first, then sensors).
 
     // Get actuators (relays) and handle the case where there are no actuators
     ESP_ERROR_CHECK(get_relay_list(&actuators, &actuator_count));
@@ -867,7 +1082,8 @@ esp_err_t get_all_relay_units(relay_unit_t **relay_list, uint16_t *total_count) 
     }
 
     // Allocate memory for the combined list of relays and sensors
-    *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*total_count));
+    // *relay_list = (relay_unit_t *)malloc(sizeof(relay_unit_t) * (*total_count));
+    *relay_list = calloc(*total_count, sizeof(relay_unit_t));
     if (*relay_list == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for combined relay list");
         if (actuator_count > 0) {
@@ -988,7 +1204,11 @@ esp_err_t relay_all_sensors_register_isr() {
         }
     }
 
-    // cleanup
+    // cleanup / free if not in-memory mode
+    if (xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY) {
+        ESP_LOGD(TAG, "Relay units in memory, skipping freeing sensors array.");
+        return ESP_OK;
+    }
     if (INIT_SENSORS_ON_LOAD) {
         ESP_ERROR_CHECK(free_relays_array(sensors, sensor_count));
     } else {
@@ -1059,8 +1279,8 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     uint16_t mqtt_connection_mode;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
     if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
-        mqtt_publish_relay_data(relay);
-       ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+        // mqtt_publish_relay_data(relay);
+        ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
     }
 
     if (persist) {
@@ -1096,6 +1316,15 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
  *      - ESP_FAIL if any step in the process fails
  */
 esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
+
+    // get random session id
+    uint32_t session_id = esp_random();
+    ESP_LOGI(TAG, "MQTT Publish Session ID: %u", session_id);
+
+    // dump relays from memory for debug
+    ESP_LOGI(TAG, "Dumping relay units in memory BEFORE publishing to MQTT (%u):", session_id);
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
+
     relay_unit_t *relay_list = NULL;
     uint16_t total_count = 0;
     esp_err_t err;
@@ -1141,8 +1370,12 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
         xEventGroupSetBits(g_sys_events,BIT_MQTT_RELAYS_SUBSCRIBED);
     }
 
-    // Free the dynamically allocated relay_list
-    free(relay_list);
+    // Free the dynamically allocated relay_list if it was allocated and not in-memory was in use
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) free(relay_list);
+
+    // dump relays from memory for debug
+    ESP_LOGI(TAG, "Dumping relay units in memory AFTER publishing to MQTT (%u):", session_id);
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
 
     return ESP_OK;
 }

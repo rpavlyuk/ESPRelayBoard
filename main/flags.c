@@ -22,6 +22,9 @@
  * - BIT_MQTT_READY
  * - BIT_NVS_READY
  * - BIT_OTA_IN_PROGRESS
+ * - BIT_MQTT_RELAYS_SUBSCRIBED
+ * - BIT_DEVICE_READY
+ * - BIT_UNITS_IN_MEMORY
  *  @return esp_err_t ESP_OK on success, ESP_FAIL if g_sys_events is not initialized.
  */
 esp_err_t reset_system_bits(void) {
@@ -37,7 +40,8 @@ esp_err_t reset_system_bits(void) {
         BIT_NVS_READY | 
         BIT_OTA_IN_PROGRESS |
         BIT_MQTT_RELAYS_SUBSCRIBED |
-        BIT_DEVICE_READY);
+        BIT_DEVICE_READY |
+        BIT_UNITS_IN_MEMORY);
     return ESP_OK;
 
 }
@@ -55,14 +59,15 @@ esp_err_t reset_system_bits(void) {
 void dump_sys_bits(const char *why) {
     EventBits_t b = xEventGroupGetBits(g_sys_events);
     ESP_LOGI(TAG,
-        "[%s] SYS bits=0x%08" PRIx32 " WIFI_CONN=%d WIFI_PROV=%d MQTT_CONN=%d MQTT_READY=%d MQTT_SUB=%d DEVICE_READY=%d",
+        "[%s] SYS bits=0x%08" PRIx32 " WIFI_CONN=%d WIFI_PROV=%d MQTT_CONN=%d MQTT_READY=%d MQTT_SUB=%d DEVICE_READY=%d UNITS_IN_MEM=%d",
         why, (uint32_t)b,
         !!(b & BIT_WIFI_CONNECTED),
         !!(b & BIT_WIFI_PROVISIONED),
         !!(b & BIT_MQTT_CONNECTED),
         !!(b & BIT_MQTT_READY),
         !!(b & BIT_MQTT_RELAYS_SUBSCRIBED),
-        !!(b & BIT_DEVICE_READY)
+        !!(b & BIT_DEVICE_READY),
+        !!(b & BIT_UNITS_IN_MEMORY)
     );
     // Also print current task for context
     dump_current_task();

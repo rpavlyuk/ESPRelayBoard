@@ -99,7 +99,7 @@ esp_err_t start_mqtt_queue_task(void) {
  */
 void mqtt_event_task(void *arg) {
     relay_event_t event;
-    relay_unit_t relay;
+    relay_unit_t *relay = NULL;
     esp_err_t err;
 
     while (1) {
@@ -110,23 +110,23 @@ void mqtt_event_task(void *arg) {
 
             // Load relay based on event type
             if (event.relay_type == RELAY_TYPE_ACTUATOR) {
-                err = load_relay_actuator_from_nvs(event.relay_key, &relay);
+                err = get_relay_actuator_from_memory_by_key(event.relay_key, &relay);
             } else {
-                err = load_relay_sensor_from_nvs(event.relay_key, &relay);
+                err = get_relay_sensor_from_memory_by_key(event.relay_key, &relay);
             }
 
             if (err == ESP_OK) {
                 // Publish the relay state to MQTT
-                mqtt_publish_relay_data(&relay);
+                mqtt_publish_relay_data(relay);
 
                 // Free relay memory if dynamically allocated
-                if (relay.type == RELAY_TYPE_ACTUATOR) {
+                if (relay->type == RELAY_TYPE_ACTUATOR) {
                     if (INIT_RELAY_ON_LOAD) {
-                        ESP_ERROR_CHECK(relay_gpio_deinit(&relay));
+                        ESP_ERROR_CHECK(relay_gpio_deinit(relay));
                     }
                 } else {
                     if (INIT_SENSORS_ON_LOAD) {
-                        ESP_ERROR_CHECK(relay_gpio_deinit(&relay));
+                        ESP_ERROR_CHECK(relay_gpio_deinit(relay));
                     }
                 }
             } else {
@@ -788,6 +788,14 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
  */
 esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *mqtt_prefix, const char *homeassistant_prefix) {
     
+    // get random session id
+    uint32_t session_id = esp_random();
+    ESP_LOGI(TAG, "MQTT HASS Publish Session ID: %u", session_id);
+
+    // dump relays from memory for debug
+    ESP_LOGI(TAG, "Dumping relay units in memory BEFORE publishing HASS Config to MQTT (%u):", session_id);
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
+
     uint16_t mqtt_connection_mode;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
     if (mqtt_connection_mode < (uint16_t)MQTT_CONN_MODE_NO_RECONNECT) {
@@ -901,8 +909,8 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
 
     }
 
-    // free relays list
-    ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
+    // free relays list only if not in-memory cache was used
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) ESP_ERROR_CHECK(free_relays_array(relay_list, total_count));
 
     if (is_error) {
         ESP_LOGE(TAG, "There were errors when publishing Home Assistant device configuration to MQTT.");
@@ -910,6 +918,10 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
     } else {
         ESP_LOGI(TAG, "Home Assistant device configuration published.");
     }
+
+    // dump relays from memory for debug
+    ESP_LOGI(TAG, "Dumping relay units in memory AFTER publishing to MQTT (%u):", session_id);
+    ESP_ERROR_CHECK(dump_relay_units_in_memory());
 
     return ESP_OK;
 }
@@ -1183,15 +1195,14 @@ void mqtt_subscribe_relays_task(void *arg) {
                 ESP_LOGW(TAG, "Wrong relay type got request for state update (key: %s, type: %i). Ignoring.", event.relay_key, relay_type);
                 continue;
             }
-            relay_unit_t *relay = (relay_unit_t *)malloc(sizeof(relay_unit_t));
-            if (load_relay_actuator_from_nvs(event.relay_key, relay) == ESP_OK) {
-                relay_set_state(relay, event.state, true);  // Update the relay state
+            relay_unit_t *relay = NULL;
+            if (get_relay_actuator_from_memory_by_key(event.relay_key, &relay) == ESP_OK) {
+                ESP_ERROR_CHECK(relay_set_state(relay, event.state, true));  // Update the relay state
             }
             free((void *)event.relay_key);  // Free the allocated key
             if (INIT_RELAY_ON_LOAD) {
                 relay_gpio_deinit(relay);
             }
-            free(relay);
         }
     }
 }

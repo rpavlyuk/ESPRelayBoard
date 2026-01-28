@@ -56,6 +56,9 @@ extern const int SAFE_GPIO_PINS[SAFE_GPIO_COUNT];
 #define DEBOUNCE_TIME_MS 50  // Set the debounce time to 50 milliseconds (adjust as needed)
 
 /** ROUTINES **/
+esp_err_t init_relay_units_in_memory();
+esp_err_t dump_relay_units_in_memory();
+
 bool is_gpio_safe(int gpio_pin);
 bool is_gpio_pin_in_use(int pin);
 int get_next_available_safe_gpio_pin();
@@ -77,6 +80,12 @@ void gpio_event_task(void *arg);
 esp_err_t save_relay_to_nvs(const char *key, relay_unit_t *relay);
 esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay);
 esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay);
+
+esp_err_t get_relay_actuator_from_memory_by_channel(int channel, relay_unit_t **relay);
+esp_err_t get_relay_sensor_from_memory_by_channel(int channel, relay_unit_t **relay);
+
+esp_err_t get_relay_actuator_from_memory_by_key(const char *key, relay_unit_t **relay);
+esp_err_t get_relay_sensor_from_memory_by_key(const char *key, relay_unit_t **relay);
 
 char *get_relay_nvs_key(int channel);
 char *get_contact_sensor_nvs_key(int channel);

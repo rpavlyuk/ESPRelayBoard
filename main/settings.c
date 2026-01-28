@@ -467,7 +467,7 @@ esp_err_t device_settings_init() {
         }
     }
 
-    // not, let's iterate via all relays stored in the memory and try load/initiate them
+    // now, let's iterate via all relays stored in the memory and try load/initiate them
     ESP_LOGI(TAG, "Settings: Initiating relays");
     for (int i_channel = 0; i_channel < channel_count; i_channel++) {
         relay_unit_t *relay;
