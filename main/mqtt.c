@@ -165,6 +165,7 @@ esp_err_t  trigger_mqtt_publish(const char *relay_key, relay_type_t relay_type) 
     // Send the event to the MQTT event task
     if (xQueueSend(mqtt_event_queue, &event, portMAX_DELAY) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to send event to MQTT queue");
+        free(event.relay_key);
         return ESP_FAIL;
     }
 
@@ -209,7 +210,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         xEventGroupSetBits(g_sys_events, BIT_MQTT_CONNECTED);
         xEventGroupSetBits(g_sys_events, BIT_MQTT_READY);
         // update all relays to MQTT
-        ESP_ERROR_CHECK(relay_publish_all_to_mqtt(true));
+        esp_err_t err = relay_publish_all_to_mqtt(true);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "relay_publish_all_to_mqtt failed on MQTT_EVENT_CONNECTED: %s", esp_err_to_name(err));
+        }
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -534,7 +538,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/state", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->state);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 1);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 1);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -544,7 +548,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/channel", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->channel);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -554,7 +558,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/inverted", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->inverted);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -564,7 +568,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/gpio_pin", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->gpio_pin);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -574,7 +578,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/enabled", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->enabled);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -584,7 +588,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/type", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->type);
     ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -595,7 +599,7 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     char *relay_json = serialize_relay_unit(relay);
     if (relay_json != NULL) {
         ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", relay_json, topic);
-        msg_id = esp_mqtt_client_publish(mqtt_client, topic, relay_json, 0, 1, 1);
+        msg_id = esp_mqtt_client_publish(mqtt_client, topic, relay_json, 0, MQTT_QOS_PUBLISH, 1);
         if (msg_id < 0) {
             ESP_LOGW(TAG, "Topic %s not published", topic);
             is_error = true;
@@ -713,7 +717,7 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     snprintf(topic, sizeof(topic), "%s/%s/system/uptime", mqtt_prefix, device_id);
     snprintf(value, sizeof(value), "%llu", (unsigned long long)status->time_since_boot);
     ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -723,7 +727,7 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     snprintf(topic, sizeof(topic), "%s/%s/system/free_heap", mqtt_prefix, device_id);
     snprintf(value, sizeof(value), "%u", status->free_heap);
     ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -733,7 +737,7 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     snprintf(topic, sizeof(topic), "%s/%s/system/min_free_heap", mqtt_prefix, device_id);
     snprintf(value, sizeof(value), "%u", status->min_free_heap);
     ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -743,7 +747,7 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     snprintf(topic, sizeof(topic), "%s/%s/system/memguard_threshold", mqtt_prefix, device_id);
     snprintf(value, sizeof(value), "%u", status->memguard_threshold);
     ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client,   topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client,   topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -753,7 +757,7 @@ esp_err_t mqtt_publish_system_info(device_status_t *status) {
     snprintf(topic, sizeof(topic), "%s/%s/system/memguard_mode", mqtt_prefix, device_id);
     snprintf(value, sizeof(value), "%u", status->memguard_mode);
     ESP_LOGI(TAG, "mqtt_publish_system_info: Publish value (%s) to topic (%s)", value, topic);
-    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, 1, 0);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
         ESP_LOGW(TAG, "Topic %s not published", topic);
         is_error = true;
@@ -792,9 +796,11 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
     uint32_t session_id = esp_random();
     ESP_LOGI(TAG, "MQTT HASS Publish Session ID: %u", session_id);
 
+#if _DEVICE_ENGINEERING_BUILD
     // dump relays from memory for debug
     ESP_LOGI(TAG, "Dumping relay units in memory BEFORE publishing HASS Config to MQTT (%u):", session_id);
     ESP_ERROR_CHECK(dump_relay_units_in_memory());
+#endif
 
     uint16_t mqtt_connection_mode;
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
@@ -879,7 +885,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         memset(discovery_path, 0, sizeof(discovery_path));
         sprintf(discovery_path, "%s/%s", homeassistant_prefix, HA_DEVICE_FAMILY);
         sprintf(topic, "%s/%s_%s/%s/%s", discovery_path, device_id, relay_key, HA_DEVICE_FAMILY, HA_DEVICE_CONFIG_PATH);
-        msg_id = esp_mqtt_client_publish(mqtt_client, topic, discovery_json, 0, 1, 1);
+        msg_id = esp_mqtt_client_publish(mqtt_client, topic, discovery_json, 0, MQTT_QOS_PUBLISH, 1);
         if (msg_id < 0) {
             ESP_LOGW(TAG, "Discovery topic %s not published", topic);
             is_error = true;
@@ -890,7 +896,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
             mqtt_client,
             entity_discovery->availability->topic,
             ha_availability_entry_print_JSON("online"),
-            0, 0, true);
+            0, MQTT_QOS_PUBLISH, 1);
 
         if (msg_id < 0) {
             ESP_LOGW(TAG, "Availability topic %s not published",
@@ -918,10 +924,11 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
     } else {
         ESP_LOGI(TAG, "Home Assistant device configuration published.");
     }
-
+#if _DEVICE_ENGINEERING_BUILD
     // dump relays from memory for debug
     ESP_LOGI(TAG, "Dumping relay units in memory AFTER publishing to MQTT (%u):", session_id);
     ESP_ERROR_CHECK(dump_relay_units_in_memory());
+#endif
 
     return ESP_OK;
 }
@@ -1193,6 +1200,7 @@ void mqtt_subscribe_relays_task(void *arg) {
             relay_type_t relay_type = get_relay_type_from_key(event.relay_key);
             if (relay_type != RELAY_TYPE_ACTUATOR) {
                 ESP_LOGW(TAG, "Wrong relay type got request for state update (key: %s, type: %i). Ignoring.", event.relay_key, relay_type);
+                free((void *)event.relay_key);
                 continue;
             }
             relay_unit_t *relay = NULL;
@@ -1296,7 +1304,7 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
     snprintf(command_topic, topic_len, "%s/%s/%s/%s/set", mqtt_prefix, device_id, get_unit_nvs_key(relay), HA_DEVICE_FAMILY);
 
     // Subscribe to the command topic
-    int msg_id = esp_mqtt_client_subscribe_single(mqtt_client, command_topic, 1);  // QoS 1 for reliability
+    int msg_id = esp_mqtt_client_subscribe_single(mqtt_client, command_topic, MQTT_QOS_SUBSCRIBE);
     if (msg_id < 0) {
         ESP_LOGE(TAG, "Failed to subscribe to topic: %s", command_topic);
         free(mqtt_prefix);

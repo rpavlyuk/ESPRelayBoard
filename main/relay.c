@@ -418,7 +418,10 @@ void gpio_event_task(void *arg) {
             ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
             if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
                 // mqtt_publish_relay_data(relay);
-                ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+                // ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+                char *key = get_unit_nvs_key(relay);
+                ESP_ERROR_CHECK(trigger_mqtt_publish(key, relay->type));
+                free(key);
             }
 
             free(relay_nvs_key);  // Free the dynamically allocated NVS key
@@ -1280,7 +1283,10 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     ESP_ERROR_CHECK(nvs_read_uint16(S_NAMESPACE, S_KEY_MQTT_CONNECT, &mqtt_connection_mode));
     if (_DEVICE_ENABLE_MQTT && mqtt_connection_mode && IS_MQTT_READY()) {
         // mqtt_publish_relay_data(relay);
-        ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+        // ESP_ERROR_CHECK(trigger_mqtt_publish(get_unit_nvs_key(relay), relay->type));
+        char *key = get_unit_nvs_key(relay);
+        ESP_ERROR_CHECK(trigger_mqtt_publish(key, relay->type));
+        free(key);
     }
 
     if (persist) {
@@ -1321,9 +1327,11 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
     uint32_t session_id = esp_random();
     ESP_LOGI(TAG, "MQTT Publish Session ID: %u", session_id);
 
+#if _DEVICE_ENGINEERING_BUILD
     // dump relays from memory for debug
     ESP_LOGI(TAG, "Dumping relay units in memory BEFORE publishing to MQTT (%u):", session_id);
     ESP_ERROR_CHECK(dump_relay_units_in_memory());
+#endif
 
     relay_unit_t *relay_list = NULL;
     uint16_t total_count = 0;
@@ -1373,9 +1381,11 @@ esp_err_t relay_publish_all_to_mqtt(bool subscribe) {
     // Free the dynamically allocated relay_list if it was allocated and not in-memory was in use
     if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) free(relay_list);
 
+#if _DEVICE_ENGINEERING_BUILD
     // dump relays from memory for debug
     ESP_LOGI(TAG, "Dumping relay units in memory AFTER publishing to MQTT (%u):", session_id);
     ESP_ERROR_CHECK(dump_relay_units_in_memory());
+#endif
 
     return ESP_OK;
 }

@@ -4,6 +4,8 @@
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"      // if you use queues
 
+#include "common.h"
+
 #include <stdio.h>
 #include "esp_log.h"
 
@@ -11,6 +13,11 @@
 #include "wifi_provisioning/scheme_softap.h"
 
 #include "non_volatile_storage.h"
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
+#include "esp_heap_caps.h"
+#include "esp_heap_trace.h"
+#include "esp_debug_helpers.h"  // For esp_backtrace_print
+#endif
 
 #include "flags.h"
 #include "main.h"
@@ -27,6 +34,14 @@ EventGroupHandle_t g_sys_events;
  * @brief Main application entry point
  */
 void app_main(void) {
+
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
+    // Start heap trace
+    esp_err_t trace_result = heap_trace_start(HEAP_TRACE_LEAKS);
+    if (trace_result != ESP_OK) {
+        ESP_LOGE(STATUS_TAG, "Failed to start heap trace: %s", esp_err_to_name(trace_result));
+    }
+#endif
 
     /* Create the system events group */
     g_sys_events = xEventGroupCreate();

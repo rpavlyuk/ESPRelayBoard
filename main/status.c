@@ -22,22 +22,32 @@ static heap_trace_record_t trace_buffer[NUM_RECORDS];  // Buffer to store the tr
 
 void status_task(void *pvParameters) {
     ESP_LOGI(STATUS_TAG, "Starting system status monitoring task");
-    // int cycle = 0;
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
+    int heap_trace_cycle = 0;
+    const int heap_trace_period = 3;  // Dump heap trace every 3 cycles
+    // Start heap trace
+    esp_err_t heap_trace_result;
+#endif
+#if _DEVICE_ENABLE_STATUS_SYSINFO_MQTT
+    int mqtt_cycle = 0;
+    const int mqtt_period = 2;  // Dump system status every 2 cycles
+    // Start heap trace
+    esp_err_t mqtt_result;
+#endif
 #if _DEVICE_ENABLE_STATUS_MEMGUARD
     int consecutive_below_threshold_count = 0;
 #endif
+
     while (1) {
-
-        // cycle++;
-
+#if _DEVICE_ENGINEERING_BUILD 
     // relays in memory dump
     ESP_ERROR_CHECK(dump_relay_units_in_memory());
+#endif
 
 #if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP
         ESP_LOGI(STATUS_TAG, "--- Heap Information ---");
         // Print heap information
-        heap_caps_print_heap_info(MALLOC_CAP_DEFAULT);
-
+        heap_caps_print_heap_info(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
         // Print free memory
         size_t free_heap = esp_get_free_heap_size();
@@ -60,30 +70,44 @@ void status_task(void *pvParameters) {
 
         
 #if _DEVICE_ENABLE_STATUS_SYSINFO_MQTT
-        // Post system status. Function mqtt_publish_system_info() will check if MQTT is enabled and connected
-        ESP_LOGI(STATUS_TAG, "--- Publishing system status to MQTT ---");
-        device_status_t status;
-        if (device_status_init(&status) == ESP_OK) {
-            if (mqtt_publish_system_info(&status) != ESP_OK) {
-                ESP_LOGE(STATUS_TAG, "Failed to publish system status to MQTT");
+        if (mqtt_cycle > mqtt_period) {
+            // Post system status. Function mqtt_publish_system_info() will check if MQTT is enabled and connected
+            ESP_LOGI(STATUS_TAG, "--- Publishing system status to MQTT ---");
+            device_status_t status;
+            if (device_status_init(&status) == ESP_OK) {
+                if (mqtt_publish_system_info(&status) != ESP_OK) {
+                    ESP_LOGE(STATUS_TAG, "Failed to publish system status to MQTT");
+                } else {
+                    ESP_LOGI(STATUS_TAG, "System status published to MQTT");
+                }
             } else {
-                ESP_LOGI(STATUS_TAG, "System status published to MQTT");
+                ESP_LOGE(STATUS_TAG, "Failed to initialize device status");
             }
-        } else {
-            ESP_LOGE(STATUS_TAG, "Failed to initialize device status");
+            mqtt_cycle = 0;
         }
 #endif
 
-        /* DISABLED -- sometimes causes crash 
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
         // Dump heap trace after some time (e.g., every 3 heap monitor cycles)
-        if (cycle > period && heap_trace_stop() == ESP_OK) {
-            ESP_LOGI(TAG, "Heap trace stopped. Dumping results...");
-            heap_trace_dump();  // Dump the trace logs to check for leaks
-            // Restart heap trace after dump
-            heap_trace_start(HEAP_TRACE_LEAKS);  
+        if (heap_trace_cycle > heap_trace_period) {
+            heap_trace_result = heap_trace_stop();
+            if (heap_trace_result != ESP_OK) {
+                ESP_LOGE(STATUS_TAG, "Failed to stop heap trace: %s", esp_err_to_name(heap_trace_result));
+            } else {
+                ESP_LOGI(STATUS_TAG, "Heap trace stopped successfully");
+                ESP_LOGI(STATUS_TAG, "Dumping results...");
+                heap_trace_dump();  // Dump the trace logs to check for leaks
+                // Restart heap trace after dump
+                heap_trace_result = heap_trace_start(HEAP_TRACE_LEAKS);  
+                if (heap_trace_result != ESP_OK) {
+                    ESP_LOGE(STATUS_TAG, "Failed to restart heap trace: %s", esp_err_to_name(heap_trace_result));
+                } else {
+                    ESP_LOGI(STATUS_TAG, "Heap trace restarted for leak detection");
+                }
+                heap_trace_cycle = 0;
+            }
         }
-         */
-
+#endif
         
 #if _DEVICE_ENABLE_STATUS_SYSINFO_GPIO
         // Dump GPIO configurations for all safe GPIO pins
@@ -149,6 +173,13 @@ void status_task(void *pvParameters) {
         }  
 #endif
 
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
+        heap_trace_cycle++;
+#endif
+#if _DEVICE_ENABLE_STATUS_SYSINFO_MQTT
+        mqtt_cycle++;
+#endif
+
         // Delay for a period (e.g., 10 seconds)
         vTaskDelay(pdMS_TO_TICKS(HEAP_DUMP_INTERVAL_MS));
     }
@@ -193,19 +224,16 @@ void dump_all_gpio_configurations() {
  * @brief: Initialize system status monitoring
  */
 void status_init() {
+#if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
     // Initialize heap tracing with a standalone buffer
     esp_err_t err = heap_trace_init_standalone(trace_buffer, NUM_RECORDS);
     if (err != ESP_OK) {
         ESP_LOGE(STATUS_TAG, "Heap trace initialization failed: %s", esp_err_to_name(err));
         return;
     }
-
-    // Start heap trace with leak detection enabled
-    heap_trace_start(HEAP_TRACE_LEAKS);
-    ESP_LOGI(STATUS_TAG, "Heap trace started for leak detection");
+#endif
 
     // Start monitoring task
-    ESP_LOGI(STATUS_TAG, "Starting system status task");
     xTaskCreate(status_task, "status_task", 4096, NULL, 1, NULL); // 4096 bytes of stack space
 }
 

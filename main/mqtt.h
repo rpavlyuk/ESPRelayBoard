@@ -10,6 +10,10 @@
 #include "relay.h"
 #include "status.h"
 
+#define MQTT_QOS_DEFAULT    0
+#define MQTT_QOS_SUBSCRIBE  1
+#define MQTT_QOS_PUBLISH  MQTT_QOS_DEFAULT
+
 /* Macro to check if MQTT is connected */
 #define IS_MQTT_CONNECTED() \
     ((xEventGroupGetBits(g_sys_events) & BIT_MQTT_CONNECTED) != 0)
