@@ -17,20 +17,21 @@ The device supports two types of units:
 4. [Tested Relay Boards / Configurations](#tested-relay-boards--configurations)
 5. [Wiring Sample](#wiring)
 6. [Getting started: Building and Flashing](#building-and-flashing)
-7. [Initiation: Making device to work](#initiation)
+7. [Updating the firmware](#updating-the-firmware)
+8. [Initiation: Making device to work](#initiation)
 	- [First boot](#first-boot)
 	- [WiFi Setup](#wifi-setup)
 	- [Device Setup](#device-setup)
-8. [WEB Setup](#web-setup)
-9. [Units (Relays) Configuration](#units-configuration)
-10. [Testing the Setup](#testing-the-setup)
+9. [WEB Setup](#web-setup)
+10. [Units (Relays) Configuration](#units-configuration)
+11. [Testing the Setup](#testing-the-setup)
 	 - [Relay / Actuator](#relay--actuator)
 	 - [Contact Sensor](#contact-sensor)
-11. [Home Assistant Integration](#home-assistant-integration)
-12. [OTA Firmware Update](#ota-firmware-update)
-13. [WEB API](#web-api)
-14. [Known issues, problems and TODOs](#known-issues-problems-and-todos)
-15. [License and Credits](#license-and-credits)
+12. [Home Assistant Integration](#home-assistant-integration)
+13. [OTA Firmware Update](#ota-firmware-update)
+14. [WEB API](#web-api)
+15. [Known issues, problems and TODOs](#known-issues-problems-and-todos)
+16. [License and Credits](#license-and-credits)
 
 ## Features
 - **Open Source**: You see what flash into your device and thus you know what it does from a security standpoint. And what it doesn't.
@@ -127,7 +128,7 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
 5. **Determine the port**:
    A connected ESP32 device is opening USB-2-Serial interface, which your system might see as `/dev/tty.usbmodem1101` (macos example) or `/dev/ttyUSB0` (Linux example). Use `ls -al /dev` command to see the exact one.
    Also, please, refer [this article](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/establish-serial-connection.html) to get much more comprehensive help and instructions on how to determine serial port depending on your OS.
-6. *(recommended)* **Erase the Flash**
+6. *(recommended for the initial setup of fresh ESP32 module)* **Erase the Flash**
    Remove all data from the ESP32 board (incl. WiFi connection settings and NVS storage).
    ```
    idf.py -p /dev/ttyUSB0 erase-flash
@@ -164,10 +165,27 @@ cp -a sdkconfig.esp32-s3 sdkconfig
 ```bash
 idf.py fullclean build
 ```
+## Updating the Firmware
+If you already have ESP32 device flashed with previous version of `ESPRelayBoard` and you want to update it to the latest one -- just follow those simple steps (assuming that ESP-IDF is already configured and initiated as stated in section above).
+* Pull the latest version from Github:
+```
+git pull
+```
+* Cleanup the code (recommended):
+```
+idf.py fullclean
+```
+* Flash the new version (assuming your device is accessible as `/dev/ttyUSB0`):
+```
+idf.py -p /dev/ttyUSB0 build flash monitor
+```
+Your settings will be preserved after the update. However, there's a possibility that those settings will become incompatible due to the significant changes in the code. In that case (if you see that device is struggling to boot) you should do `idf.py erase-flash` as described in the section above.
+
+It is recommeded however to use [OTA Firmware Update](#ota-firmware-update) after version 1.4 and higher.
 
 ## Initiation
 ### First boot
-Right upon flashing (after flash was erased) the device will boot in Wi-Fi setup mode.
+Right upon initial flashing (or after flash was erased) the device will boot in Wi-Fi setup mode.
 ### WiFi Setup
 * On the first boot (or after flash erase), the WiFi will start in access point mode with the SSID `PROV_AP_XXXXXX`. The exact named will be different depending on the device hardware ID (which is built in). The password is SSID name plus `1234`. For example, `PROV_AP_XXXXXX1234`
 * Use the *ESP SoftAP Prov* ([iOS](https://apps.apple.com/us/app/esp-softap-provisioning/id1474040630), [Android](https://play.google.com/store/apps/details?id=com.espressif.provsoftap&hl=en)) mobile app to connect to the device and configure WiFi settings. Read more [here](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/provisioning/provisioning.html#provisioning-tools) if you want to know more about the SoftAP provisioning.
