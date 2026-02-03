@@ -41,7 +41,7 @@ static esp_err_t get_settings_all_handler(httpd_req_t *req);
 static esp_err_t get_setting_one_handler(httpd_req_t *req);
 static esp_err_t get_ca_certificate_handler(httpd_req_t *req);
 static esp_err_t relays_data_get_handler(httpd_req_t *req);
-
+static esp_err_t api_control_handler(httpd_req_t *req);
 
 
 void assign_static_page_variables(char *html_output);

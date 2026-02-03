@@ -892,10 +892,11 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         }
 
         // Publish availability as "online"
+        char *ha_availability_entry_json = ha_availability_entry_print_JSON("online");
         msg_id = esp_mqtt_client_publish(
             mqtt_client,
             entity_discovery->availability->topic,
-            ha_availability_entry_print_JSON("online"),
+            ha_availability_entry_json,
             0, MQTT_QOS_PUBLISH, 1);
 
         if (msg_id < 0) {
@@ -905,6 +906,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         }
 
         // Free allocated resources
+        free(ha_availability_entry_json);
         free(discovery_json);
         free(relay_key);
         relay_key = NULL;
@@ -1291,7 +1293,8 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
     }
 
     // Allocate memory for the command topic
-    size_t topic_len = strlen(mqtt_prefix) + strlen(device_id) + strlen(get_unit_nvs_key(relay)) + strlen(HA_DEVICE_FAMILY) + strlen("/set") + 4; // extra for slashes and null terminator
+    char *relay_key = get_unit_nvs_key(relay);
+    size_t topic_len = strlen(mqtt_prefix) + strlen(device_id) + strlen(relay_key) + strlen(HA_DEVICE_FAMILY) + strlen("/set") + 4; // extra for slashes and null terminator
     char *command_topic = (char *)malloc(topic_len);
     if (command_topic == NULL) {
         free(mqtt_prefix);
@@ -1301,7 +1304,7 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
     }
 
     // Format the command topic
-    snprintf(command_topic, topic_len, "%s/%s/%s/%s/set", mqtt_prefix, device_id, get_unit_nvs_key(relay), HA_DEVICE_FAMILY);
+    snprintf(command_topic, topic_len, "%s/%s/%s/%s/set", mqtt_prefix, device_id, relay_key, HA_DEVICE_FAMILY);
 
     // Subscribe to the command topic
     int msg_id = esp_mqtt_client_subscribe_single(mqtt_client, command_topic, MQTT_QOS_SUBSCRIBE);
@@ -1316,6 +1319,7 @@ esp_err_t mqtt_relay_subscribe(relay_unit_t *relay) {
     ESP_LOGI(TAG, "Subscribed to topic: %s", command_topic);
 
     // Free allocated memory for command topic
+    free(relay_key);
     free(mqtt_prefix);
     free(device_id);
     free(command_topic);

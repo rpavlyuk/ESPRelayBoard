@@ -153,7 +153,7 @@ void status_task(void *pvParameters) {
                         } else {
                             // Restart system
                             ESP_LOGW(STATUS_TAG, "Memory guard mode (%d): RESTARTING system now (%d checks out of %d fired)!", memguard_mode, consecutive_below_threshold_count, MEMGUARD_CONSECUTIVE_THRESHOLD_COUNT);
-                            ESP_ERROR_CHECK(system_reboot());
+                            ESP_ERROR_CHECK(MEMGUARD_REBOOT_FUNCTION());
                         }
                         consecutive_below_threshold_count = 0;
                     } else {
