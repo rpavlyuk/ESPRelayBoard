@@ -48,6 +48,9 @@
 #define MEMGRD_MODE_WARN        1
 #define MEMGRD_MODE_RESTART     2
 
+#define OTA_UPDATE_RESET_CONFIG_MIN 0
+#define OTA_UPDATE_RESET_CONFIG_MAX 1
+
 /**
  * General constants
  */
@@ -85,6 +88,7 @@
 #define S_KEY_RELAY_REFRESH_INTERVAL    "relay_refr_int"
 
 #define S_KEY_OTA_UPDATE_URL            "ota_update_url"
+#define S_KEY_OTA_UPDATE_RESET_CONFIG   "ota_upd_rescfg"
 
 #define S_KEY_NET_LOGGING_TYPE     "net_log_type"
 #define S_KEY_NET_LOGGING_HOST     "net_log_host"
@@ -126,6 +130,8 @@
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
 #define S_DEFAULT_OTA_UPDATE_URL                 "https://dist-repo-public.s3.eu-central-1.amazonaws.com/firmware/ESPRelayBoard/latest/ESPRelayBoard.bin"
+#define S_DEFAULT_OTA_UPDATE_RESET_CONFIG       0   // 0 - Do not reset config, 1 - Reset config to defaults (except Wi-Fi) before applying update. 
+    // This can be useful if the device becomes inaccessible due to misconfiguration and you want to ensure that the new firmware will be applied with default settings.
 
 #define S_DEFAULT_STATUS_MEMGUARD_MODE          MEMGRD_MODE_DISABLED       // 0 - Disabled, 1 - Warn, 2 - Restart
 #define S_DEFAULT_STATUS_MEMGUARD_THRESHOLD     65536    // 64k in bytes
@@ -205,6 +211,7 @@ static esp_err_t handle_setting_net_log_port(const char *key, const cJSON *v, se
 static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_memgrd_mode(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_memgrd_trshld(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_ota_upd_rescfg(const char *key, const cJSON *v, setting_update_msg_t *out);
 
 /**
  * @brief: Setting handlers mapping table
@@ -229,6 +236,7 @@ static const setting_entry_t s_settings[] = {
     { S_KEY_NET_LOGGING_KEEP_STDOUT, handle_setting_net_log_stdout, 0, SETTING_TYPE_UINT16 },
     { S_KEY_STATUS_MEMGUARD_MODE, handle_setting_memgrd_mode, 0, SETTING_TYPE_UINT16 },
     { S_KEY_STATUS_MEMGUARD_THRESHOLD, handle_setting_memgrd_trshld, 0, SETTING_TYPE_UINT32 },
+    { S_KEY_OTA_UPDATE_RESET_CONFIG, handle_setting_ota_upd_rescfg, 0, SETTING_TYPE_UINT16 },
 };
 
 /**

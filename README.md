@@ -209,6 +209,7 @@ Right upon initial flashing (or after flash was erased) the device will boot in 
   * `HomeAssistant Device update interval (ms)`: how often to update device definitions at HomeAssistant.
 * System Update:
   * `OTA Update URL`: A URL pointing to `.bin` file with the firmware which you want to update the system to. See section *OTA Firmware Update* below for details.
+  * `OTA Update Reset Config`: Reset device configuration (except Wi-Fi) once OTA is performed. Useful
 * Relay Parameters:
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
   * `Contact sensors count`: number of contact sensors you'd like to activate  and monitor
@@ -272,6 +273,7 @@ idf.py build
 * Place the file `./build/ESPRelayBoard.bin` to a WEB server that is accessible by the device. If you use HTTPS then make sure you've set correct `CA / Root Certificate` at `HTTPS` tab.
 * (optional) Place file `./build/storage.bin` in the same WEB server directory as the firmware one. This will update SPIFFS where templates and other files are stored.
 * Adjust / provide `OTA Update URL` if needed.
+* It is recommended to set `OTA Update Reset Config` to `Enable` if you're doing major version upgrade.
 * Click `Update Device` button on WEB UI. Device will update itself (takes 2-5 mins depending on the connection speed) and reboot with new hardware.
 * The device will revert to the previous (running) firmware if the OTA process crashes or is not complete successfully.
 > [!NOTE]

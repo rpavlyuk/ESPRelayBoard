@@ -62,6 +62,10 @@
             <tr><td>HomeAssistant Device update interval (ms):</td><td><input type="number" step="500" name="ha_upd_intervl" value="{VAL_HA_UPDATE_INTERVAL}" min="{MIN_HA_UPDATE_INTERVAL}" max="{MAX_HA_UPDATE_INTERVAL}"/>  ({MIN_HA_UPDATE_INTERVAL} - {MAX_HA_UPDATE_INTERVAL})</td></tr>
             <tr><td><b>System Update</b></td><td></td></tr>
             <tr><td>OTA Update URL:</td><td><input type="text" name="ota_update_url" value="{VAL_OTA_UPDATE_URL}" size="32" maxlength="{LEN_OTA_UPDATE_URL}"></td></tr>
+            <tr><td>OTA Update Reset Config:</td><td><select name="ota_upd_rescfg" id="ota_upd_rescfg">
+                  <option value="0" selected>Disabled</option>
+                  <option value="1">Enabled</option>
+                </select></td></tr>
             <tr><td><b>Relay Parameters</b></td><td></td></tr>
             <tr><td>Channels count (actuators):</td><td><input type="number" step="1" name="relay_ch_count" value="{VAL_RELAY_CHANNEL_COUNT}" min="{MIN_RELAY_CHANNEL_COUNT}" max="{MAX_RELAY_CHANNEL_COUNT}"> ({MIN_RELAY_CHANNEL_COUNT} - {MAX_RELAY_CHANNEL_COUNT}) <i>Reboot required</i></td></tr>
             <tr><td>Contact sensors count:</td><td><input type="number" step="1" name="relay_sn_count" value="{VAL_CONTACT_SENSORS_COUNT}" min="{MIN_CONTACT_SENSORS_COUNT}" max="{MAX_CONTACT_SENSORS_COUNT}"> ({MIN_CONTACT_SENSORS_COUNT} - {MAX_CONTACT_SENSORS_COUNT}) <i>Reboot required</i></td></tr>

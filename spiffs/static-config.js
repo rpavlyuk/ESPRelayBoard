@@ -158,6 +158,7 @@ $(function () {
 
     // OTA
     setInputByName("ota_update_url",  getField(data, "ota_update_url"));
+    setSelectById("ota_upd_rescfg",   getField(data, "ota_upd_rescfg"));
 
     // Relay params
     setNumberByName("relay_ch_count", getField(data, "relay_ch_count"));

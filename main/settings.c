@@ -316,6 +316,21 @@ esp_err_t base_settings_init() {
         is_dynamically_allocated = false;
     }
 
+    // Paramter: OTA Update reset config
+    uint16_t ota_upd_rescfg;
+    if (nvs_read_uint16(S_NAMESPACE, S_KEY_OTA_UPDATE_RESET_CONFIG, &ota_upd_rescfg) == ESP_OK) {
+        ESP_LOGI(TAG, "Found parameter %s in NVS: %i", S_KEY_OTA_UPDATE_RESET_CONFIG, ota_upd_rescfg);
+    } else {
+        ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_OTA_UPDATE_RESET_CONFIG);
+        ota_upd_rescfg = S_DEFAULT_OTA_UPDATE_RESET_CONFIG;
+        if (nvs_write_uint16(S_NAMESPACE, S_KEY_OTA_UPDATE_RESET_CONFIG, ota_upd_rescfg) == ESP_OK) {
+            ESP_LOGI(TAG, "Successfully created key %s with value %i", S_KEY_OTA_UPDATE_RESET_CONFIG, ota_upd_rescfg);
+        } else {
+            ESP_LOGE(TAG, "Failed creating key %s with value %i", S_KEY_OTA_UPDATE_RESET_CONFIG, ota_upd_rescfg);
+            return ESP_FAIL;
+        }
+    }
+
     // Parameter: Network logging type
     uint16_t net_log_type;
     if (nvs_read_uint16(S_NAMESPACE, S_KEY_NET_LOGGING_TYPE, &net_log_type) == ESP_OK) {
@@ -1206,6 +1221,23 @@ void ota_update_task(void *param) {
         ESP_LOGI(TAG, "Memory guard mode restored to %i", current_memguard_mode);
 
 #endif
+        // Reset device configuration if required
+        // 1 - get reset mode from NV
+        uint16_t ota_upd_rescfg = S_DEFAULT_OTA_UPDATE_RESET_CONFIG;
+        if (nvs_read_uint16(S_NAMESPACE, S_KEY_OTA_UPDATE_RESET_CONFIG, &ota_upd_rescfg) != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to read OTA update reset config from NVS, using default: %i", ota_upd_rescfg);
+        } else {
+            ESP_LOGI(TAG, "OTA update reset config: %i", ota_upd_rescfg);
+        }
+        // 2 - perform reset based on mode
+        if (ota_upd_rescfg > 0) {
+            // reset device settings
+            if (reset_device_settings() != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to reset device settings after OTA update");
+            } else {
+                ESP_LOGI(TAG, "Device settings reset successfully after OTA update");   
+            }           
+        }
         // Reboot the device to apply the update
         system_reboot();
     } else {
@@ -1883,3 +1915,26 @@ static esp_err_t handle_setting_memgrd_trshld(const char *key, const cJSON *v, s
     return ESP_OK; // generic writer will store it
 }
 
+/**
+ * @brief: Handle OTA update reset config setting validation handler
+ * 
+ * @param v: cJSON object containing the new OTA update reset config value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_ota_upd_rescfg(const char *key, const cJSON *v, setting_update_msg_t *out) {
+
+    int reset_config = (int)v->valuedouble;
+
+    if (reset_config < OTA_UPDATE_RESET_CONFIG_MIN || reset_config > OTA_UPDATE_RESET_CONFIG_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "ota_upd_rescfg invalid (%d). Allowed: %d..%d",
+                   reset_config,
+                   OTA_UPDATE_RESET_CONFIG_MIN,
+                   OTA_UPDATE_RESET_CONFIG_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
