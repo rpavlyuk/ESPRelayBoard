@@ -27,6 +27,8 @@ import os
 from pathlib import Path
 from typing import Dict, Tuple
 
+import mimetypes
+
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -103,16 +105,29 @@ def make_session(profile: str | None, region: str | None):
         return boto3.Session(profile_name=profile, region_name=region)
     return boto3.Session(region_name=region)
 
-
 def upload_one(s3_client, local_path: Path, bucket: str, key: str, dry_run: bool) -> None:
     if dry_run:
         print(f"[DRY-RUN] upload: {local_path} -> s3://{bucket}/{key}")
         return
 
     try:
-        # upload_file uses multipart for larger files; overwrite is default behavior.
-        s3_client.upload_file(str(local_path), bucket, key)
-        print(f"Uploaded: {local_path.name} -> s3://{bucket}/{key}")
+        # Guess content type from filename
+        content_type, _ = mimetypes.guess_type(str(local_path))
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        s3_client.upload_file(
+            str(local_path),
+            bucket,
+            key,
+            ExtraArgs={
+                "ContentType": content_type,
+                "CacheControl": "no-cache"
+            }
+        )
+
+        print(f"Uploaded: {local_path.name} -> s3://{bucket}/{key} ({content_type})")
+
     except (BotoCoreError, ClientError) as e:
         raise SystemExit(f"ERROR: upload failed for {local_path} -> s3://{bucket}/{key}: {e}")
 

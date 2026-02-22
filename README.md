@@ -208,7 +208,7 @@ Right upon initial flashing (or after flash was erased) the device will boot in 
   * `HomeAssistant Device integration MQTT Prefix`: HomeAssistant MQTT device auto-discovery prefix. Usually, it is set to `homeassistant`
   * `HomeAssistant Device update interval (ms)`: how often to update device definitions at HomeAssistant.
 * System Update:
-  * `OTA Update URL`: A URL pointing to `.bin` file with the firmware which you want to update the system to. See section *OTA Firmware Update* below for details.
+  * `OTA Update URL`: A URL pointing to `.bin` file with the firmware which you want to update the system to. See section *OTA Firmware Update* below for details. The UI client will also try to check if there's new version at the provided URL but looking for `build_info.json` file in the same directory as firmware file.
   * `OTA Update Reset Config`: Reset device configuration (except Wi-Fi) once OTA is performed. Useful
 * Relay Parameters:
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
