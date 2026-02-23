@@ -129,6 +129,7 @@ relay_unit_t get_actuator_relay(int channel, int pin) {
     relay.enabled = true;          // Enable by default
     relay.gpio_initialized = false;
     relay.type = RELAY_TYPE_ACTUATOR;
+    relay.sensor_relay_channel = -1;   // Default to -1 (no corresponding sensor relay)
 
     if(INIT_RELAY_ON_GET) {
         if(relay_gpio_init(&relay) != ESP_OK) {
@@ -159,6 +160,7 @@ relay_unit_t get_sensor_relay(int channel, int pin) {
     relay.enabled = true;          // Enable by default
     relay.gpio_initialized = false;
     relay.type = RELAY_TYPE_SENSOR;
+    relay.sensor_relay_channel = -1;   // Not used for sensor relay
 
     if(INIT_SENSORS_ON_GET) {
         if(relay_gpio_init(&relay) != ESP_OK) {
@@ -397,12 +399,10 @@ void gpio_event_task(void *arg) {
                 relay->state = (current_level == 1) ? RELAY_STATE_ON : RELAY_STATE_OFF;
             }
 
-
             // Get NVS key for the contact sensor and save state to NVS
             char *relay_nvs_key = get_contact_sensor_nvs_key(relay->channel);
             if (relay_nvs_key == NULL) {
                 ESP_LOGE(TAG, "Failed to get NVS key for channel %d", relay->channel);
-                free_relays_array(sensors, sensor_count);  // Free sensor list before exiting
                 continue;
             }
 
@@ -410,7 +410,13 @@ void gpio_event_task(void *arg) {
             err = save_relay_to_nvs(relay_nvs_key, relay);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to save contact sensor state to NVS");
+                free(relay_nvs_key);  // Free the dynamically allocated NVS key before continuing
                 continue;
+            }   
+
+            // refresh the state of actuators dependent on this sensor
+            if (update_actuators_dependent_on_sensor(relay->channel) != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to update actuators dependent on sensor channel %d", relay->channel);
             }
 
             // publish to MQTT
@@ -424,12 +430,7 @@ void gpio_event_task(void *arg) {
                 free(key);
             }
 
-            free(relay_nvs_key);  // Free the dynamically allocated NVS key
-            // cleanup if no in-memory storage was used
-            if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
-                free_relays_array(sensors, sensor_count);
-            }
-            
+            free(relay_nvs_key);  // Free the dynamically allocated NVS key            
         }
     }
 }
@@ -842,6 +843,7 @@ char* serialize_relay_unit(const relay_unit_t *relay) {
     cJSON_AddNumberToObject(relay_json, "gpio_pin", relay->gpio_pin);
     cJSON_AddBoolToObject(relay_json, "enabled", relay->enabled);
     cJSON_AddNumberToObject(relay_json, "type", relay->type);
+    cJSON_AddNumberToObject(relay_json, "sensor_relay_channel", relay->sensor_relay_channel);
 
     // Convert the JSON object to a string
     char *json_string = cJSON_PrintUnformatted(relay_json);
@@ -881,8 +883,9 @@ esp_err_t deserialize_relay_unit(const char *json_str, relay_unit_t *relay) {
     cJSON *gpio_pin = cJSON_GetObjectItem(relay_json, "gpio_pin");
     cJSON *enabled = cJSON_GetObjectItem(relay_json, "enabled");
     cJSON *type = cJSON_GetObjectItem(relay_json, "type");
+    cJSON *sensor_relay_channel = cJSON_GetObjectItem(relay_json, "sensor_relay_channel");
 
-    if (!cJSON_IsNumber(channel) || !cJSON_IsBool(state) || !cJSON_IsBool(inverted) || !cJSON_IsNumber(gpio_pin) || !cJSON_IsBool(enabled) || !cJSON_IsNumber(type)) {
+    if (!cJSON_IsNumber(channel) || !cJSON_IsBool(state) || !cJSON_IsBool(inverted) || !cJSON_IsNumber(gpio_pin) || !cJSON_IsBool(enabled) || !cJSON_IsNumber(type) || !cJSON_IsNumber(sensor_relay_channel)) {
         ESP_LOGE(TAG, "Invalid or missing fields in JSON object for relay deserialization");
         cJSON_Delete(relay_json);
         return ESP_FAIL;
@@ -894,7 +897,7 @@ esp_err_t deserialize_relay_unit(const char *json_str, relay_unit_t *relay) {
     relay->gpio_pin = gpio_pin->valueint;
     relay->enabled = enabled->valueint;
     relay->type = (relay_type_t)type->valueint;
-
+    relay->sensor_relay_channel = sensor_relay_channel->valueint;
     cJSON_Delete(relay_json);
     return ESP_OK;
 }
@@ -979,7 +982,7 @@ esp_err_t get_relay_list(relay_unit_t **relay_list, uint16_t *count) {
 /**
  * @brief Retrieves the list of contact sensors from NVS.
  * 
- * This function reads the number of contact sensors from NVS, allocates memory 
+ * This function reads the number of contact sensors from in-memory or NVS and allocates memory 
  * for the list, and loads each contact sensor's configuration from NVS into the list.
  * 
  * @param[out] sensor_list Pointer to the array of relay_unit_t that will hold the contact sensors.
@@ -1250,6 +1253,21 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
         return ESP_ERR_INVALID_ARG;       
     }
 
+    // check if the relay has a corresponding sensor relay
+    if (relay->sensor_relay_channel >= 0) {
+        // Okay, we have a state dependency on the corresponding sensor relay. We need to get its state and force it instead of the request state, because in this configuration the sensor state has a priority.
+        relay_unit_t *sensor_relay = NULL;
+        if (get_relay_sensor_from_memory_by_channel(relay->sensor_relay_channel, &sensor_relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Forcing sensor state %d (channel %d) will be set to the actuator channel %d.", sensor_relay->state, sensor_relay->channel, relay->channel);
+            state = sensor_relay->state; // override the requested state with the sensor state
+        } else {
+            ESP_LOGE(TAG, "Unable to find the corresponding sensor relay in memory for channel %d, despite it being set for relay unit %d", relay->sensor_relay_channel, relay->channel);
+            return ESP_FAIL;
+        }
+    } else {
+        ESP_LOGD(TAG, "No sensor relay channel set for actuator channel %d, proceeding with the requested state %d.", relay->channel, state);
+    }
+
     // Init GPIO
     if (!relay->gpio_initialized) {
         if (relay_gpio_init(relay) != ESP_OK) {
@@ -1306,6 +1324,111 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     return ESP_OK;
 }
 
+
+/**
+ * @brief: Get all actautors which have a state dependency on a sensor relay with the provided channel number. This is used to update the actuators' states when the sensor state changes.
+ * 
+ * @param sensor_channel The channel number of the sensor relay
+ * @param dependent_actuator_channels Output parameter to hold the list of dependent actuators' channels. The caller is responsible for freeing this list using `free()`.
+ * @param count Output parameter to hold the number of dependent actuators found.
+ * @return
+ *     - ESP_OK: Successfully retrieved the list of dependent actuators.
+ *     - ESP_ERR_INVALID_ARG: dependent_actuator_channels or count is NULL.
+ *     - ESP_ERR_NO_MEM: Failed to allocate memory for the dependent actuators list.
+ *     - ESP_FAIL: Failed to get all relay units from NVS or other errors during processing.
+ */
+esp_err_t get_actuators_channels_dependent_on_sensor(int sensor_channel, uint16_t **dependent_actuator_channels, uint16_t *count) {
+    if (dependent_actuator_channels == NULL || count == NULL) {
+        ESP_LOGE(TAG, "Output parameters dependent_actuator_channels and count cannot be NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *count = 0;
+    relay_unit_t *all_relays = NULL;
+    uint16_t total_count = 0;
+
+    // Get all relay units (both actuators and sensors)
+    esp_err_t err = get_all_relay_units(&all_relays, &total_count);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get all relay units from NVS");
+        return err;
+    }
+
+    // iterate through the list and find actuators that have a state dependency on the sensor with the provided channel;
+    // append channel numbers of the dependent actuators to the output list
+    uint16_t *dependent_channels = NULL;
+    uint16_t dependent_count = 0;
+    for (uint16_t i = 0; i < total_count; i++) {
+        if (all_relays[i].type == RELAY_TYPE_ACTUATOR && all_relays[i].sensor_relay_channel == sensor_channel) {
+            // This actuator has a state dependency on the sensor with the provided channel, add it to the dependent channels list
+            uint16_t *new_list = realloc(dependent_channels, sizeof(uint16_t) * (dependent_count + 1));
+            if (new_list == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for dependent actuators list");
+                free(dependent_channels);
+                return ESP_ERR_NO_MEM;
+            }
+            dependent_channels = new_list;
+            dependent_channels[dependent_count] = all_relays[i].channel;
+            dependent_count++;
+        }
+    }
+
+    *dependent_actuator_channels = dependent_channels;
+    *count = dependent_count;
+
+    return ESP_OK;
+}
+
+
+/**
+ * @brief: Iterate via actuator channels list (uint_t16 *) for a given sensor channel and set the state of each actualor based on the state of the sensor.
+ * 
+ * @param sensor_channel The channel number of the sensor relay whose state has changed and for which we want to update the dependent actuators.
+ * @return
+ *     - ESP_OK: Successfully updated the states of dependent actuators.
+ *     - ESP_FAIL: Failed to get dependent actuators or failed to get the sensor relay from memory or failed to set the state for any actuator. 
+ */
+esp_err_t update_actuators_dependent_on_sensor(int sensor_channel) {
+    uint16_t *dependent_actuator_channels = NULL;
+    uint16_t dependent_count = 0;
+
+    // Get the list of actuator channels that are dependent on the sensor with the provided channel
+    esp_err_t err = get_actuators_channels_dependent_on_sensor(sensor_channel, &dependent_actuator_channels, &dependent_count);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get dependent actuators for sensor channel %d", sensor_channel);
+        return err;
+    }
+
+    // If there are no dependent actuators, we can exit early
+    if (dependent_count == 0) {
+        ESP_LOGI(TAG, "No actuators found that are dependent on sensor channel %d", sensor_channel);
+        free(dependent_actuator_channels);
+        return ESP_OK;
+    }
+
+    // Get the state of the sensor with the provided channel
+    relay_unit_t *sensor_relay = NULL;
+    if (get_relay_sensor_from_memory_by_channel(sensor_channel, &sensor_relay) != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to find the corresponding sensor relay in memory for channel %d", sensor_channel);
+        free(dependent_actuator_channels);
+        return ESP_FAIL;
+    }
+
+    // Iterate through the list of dependent actuator channels and set their state based on the state of the sensor
+    for (uint16_t i = 0; i < dependent_count; i++) {
+        relay_unit_t *actuator_relay = NULL;
+        if (get_relay_actuator_from_memory_by_channel(dependent_actuator_channels[i], &actuator_relay) == ESP_OK) {
+            ESP_LOGI(TAG, "Updating actuator channel %d to state %d based on sensor channel %d state.", actuator_relay->channel, sensor_relay->state, sensor_relay->channel);
+            if (relay_set_state(actuator_relay, sensor_relay->state, true) != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to set state for actuator channel %d", actuator_relay->channel);
+            }
+        } else {
+            ESP_LOGE(TAG, "Unable to find the corresponding actuator relay in memory for channel %d", dependent_actuator_channels[i]);
+        }
+    }
+
+    free(dependent_actuator_channels);
+    return ESP_OK; 
+}
 
 /**
  * @brief Publishes all relay units' states to MQTT.

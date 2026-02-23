@@ -38,6 +38,7 @@ The device supports two types of units:
 - **WiFi Connectivity**: Supports connecting to WiFi for remote monitoring and control.
 - **Soft Configuration**: GPIO pins that relays are connected to and other settings are defined via user interface and are stored in NVS (EEPROM).
 - **Relay State Memory**: Relay (actuators) states are written to NVS (EEPROM) memory and will be restored after power loss.
+- **Contact Sensor > Actuator Relay Pairing**: Relay (actuator) can be set dependent on the state of dry contact sensor either in direct or inverted mode.
 - **MQTT Support**: Publishes relay and contact sensors states via MQTT for further integration with various platforms.
 - **Home Assistant Integration**: Automatically detects and configures devices in Home Assistant using auto-discovery via MQTT.
 - **Web Interface**: Provides a web-based user interface for configuration, control and monitoring.
@@ -237,6 +238,7 @@ All units have the following properties:
 * `GPIO Pin`: GPIO pin that is controlling the relay (for actuator) or for which the contact state is monitored (sensor).
 * `Inverted`: Inverting the state of control or sensing signals correspondngly.
 * `Enabled`*(reserved, currently not in use and is ignored)*: Unit is enabled.
+* `Sensor Relay Channel`: Actuators only: Contact sensor channel which controls this actuator. If set to anything else than `-1`, the actuator relay starts following the state of dry contact sensor.
 
 Setting values are being saved by `Update` button for each corresponding unit. Pin number be within the so called *safe list* and should not overlap with other pins already in use.
 

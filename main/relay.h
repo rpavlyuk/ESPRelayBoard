@@ -33,7 +33,8 @@ typedef struct {
     bool enabled;               // Enable the channel
     relay_type_t type;          // Relay type
     bool gpio_initialized;      // GPIO initialized
-    gpio_config_t io_conf;     // GPIO IO configuration
+    gpio_config_t io_conf;      // GPIO IO configuration
+    int sensor_relay_channel;   // For actuator relay, the channel of the corresponding sensor relay. It is used to link the actuator relay state with its corresponding sensor relay for state refresh and MQTT topic generation. Not used for sensor relay. -1 for no corresponding sensor relay.
 } relay_unit_t;
 
 // Event type for GPIO events
@@ -105,5 +106,8 @@ esp_err_t free_relays_array(relay_unit_t *relay_list, size_t count);
 
 esp_err_t relay_publish_all_to_mqtt(bool subscribe);
 void refresh_relay_states_2_mqtt_task(void *arg);
+
+esp_err_t update_actuators_dependent_on_sensor(int sensor_channel);
+esp_err_t get_actuators_channels_dependent_on_sensor(int sensor_channel, uint16_t **dependent_actuator_channels, uint16_t *count);
 
 #endif

@@ -2,12 +2,12 @@
 window.RelayBoardRelays = window.RelayBoardRelays || {};
 
 // 1) Update relay configuration
-window.RelayBoardRelays.updateRelay = function(relayKey, relayChannel, gpioPinFieldId, enabledFieldId, invertedFieldId) {
+window.RelayBoardRelays.updateRelay = function(relayKey, relayChannel, relayType, gpioPinFieldId, enabledFieldId, invertedFieldId, sensorRelayFieldId) {
         // Read values from the input fields
         const gpioPinValue = parseInt(document.getElementById(gpioPinFieldId).value, 10);
         const enabledValue = document.getElementById(enabledFieldId).checked;
-        const invertedValue = document.getElementById(invertedFieldId).checked;
-
+        const invertedValue = document.getElementById(invertedFieldId).checked;  
+        const sensorRelayValue = parseInt(document.getElementById(sensorRelayFieldId).value, 10);
         // Get device ID and serial from global config
         const deviceSerial = window.RelayBoardRelays.deviceSerial || "";
         const deviceId = window.RelayBoardRelays.deviceId || "";
@@ -21,7 +21,9 @@ window.RelayBoardRelays.updateRelay = function(relayKey, relayChannel, gpioPinFi
                   relay_channel: relayChannel,
                   relay_gpio_pin: gpioPinValue,  // Send GPIO pin as a number
                   relay_enabled: enabledValue,   // Send enabled as boolean
-                  relay_inverted: invertedValue  // Send inverted as boolean
+                  relay_inverted: invertedValue,  // Send inverted as boolean
+                  relay_type: relayType,                    // Add relay_type to the JSON data
+                  sensor_relay_channel: sensorRelayValue    // Send sensor relay channel as a number. For actuators only.
               }
           };
       
@@ -48,6 +50,9 @@ window.RelayBoardRelays.updateRelay = function(relayKey, relayChannel, gpioPinFi
       
                       // Update inverted checkbox
                       document.getElementById(invertedFieldId).checked = updatedData.inverted;
+
+                      // Update sensor relay channel
+                      document.getElementById(sensorRelayFieldId).value = updatedData.sensor_relay_channel;                     
                   }
               },
               error: function(xhr, status, error) {

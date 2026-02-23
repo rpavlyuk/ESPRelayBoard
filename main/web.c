@@ -1646,13 +1646,22 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
             strcpy(relay_table_entry, relay_table_entry_tpl);
 
             // Step 2: Substitute entries using replace_placeholder()
-            char channel_str[5], gpio_pin_str[5];
+            char channel_str[5], gpio_pin_str[5], sensor_type_str[5], sensor_relay_channel_str[5], relay_sn_count_str[6];
             snprintf(channel_str, sizeof(channel_str), "%d", relay->channel);
             snprintf(gpio_pin_str, sizeof(gpio_pin_str), "%d", relay->gpio_pin);
+            snprintf(sensor_type_str, sizeof(sensor_type_str), "%d", (int)relay->type);
+            snprintf(sensor_relay_channel_str, sizeof(sensor_relay_channel_str), "%d", relay->sensor_relay_channel);
+            snprintf(relay_sn_count_str, sizeof(relay_sn_count_str), "%d", relay_sn_count - 1);
 
             replace_placeholder(relay_table_entry, "{RELAY_KEY}", relay_nvs_key);
             replace_placeholder(relay_table_entry, "{RELAY_CHANNEL}", channel_str);
             replace_placeholder(relay_table_entry, "{RELAY_GPIO_PIN}", gpio_pin_str);
+            replace_placeholder(relay_table_entry, "{RELAY_TYPE}", sensor_type_str);
+            replace_placeholder(relay_table_entry, "{SENSOR_RELAY_CHANNEL}", sensor_relay_channel_str);
+            replace_placeholder(relay_table_entry, "{MIN_SENSOR_RELAY_CHANNEL}", "-1"); // Replace with actual min value
+            replace_placeholder(relay_table_entry, "{MAX_SENSOR_RELAY_CHANNEL}", relay_sn_count_str); // Replace with actual max value
+            // enable edit options for sensor relay 
+            replace_placeholder(relay_table_entry, "{RELAY_SENSOR_RELAY_DISABLED}", ""); // Replace with "" to show the input by default
 
             // Handle RELAY_INVERTED: Checkbox checked if inverted is true
             if (relay->inverted) {
@@ -1714,13 +1723,21 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
             strcpy(relay_table_entry, relay_table_entry_tpl);
 
             // Step 2: Substitute entries using replace_placeholder()
-            char channel_str[5], gpio_pin_str[5];
+            char channel_str[5], gpio_pin_str[5], sensor_type_str[5];
             snprintf(channel_str, sizeof(channel_str), "%d", relay->channel);
             snprintf(gpio_pin_str, sizeof(gpio_pin_str), "%d", relay->gpio_pin);
+            snprintf(sensor_type_str, sizeof(sensor_type_str), "%d", (int)relay->type);
 
             replace_placeholder(relay_table_entry, "{RELAY_KEY}", relay_nvs_key);
+            replace_placeholder(relay_table_entry, "{RELAY_TYPE}", sensor_type_str);
             replace_placeholder(relay_table_entry, "{RELAY_CHANNEL}", channel_str);
             replace_placeholder(relay_table_entry, "{RELAY_GPIO_PIN}", gpio_pin_str);
+            // reset unused placeholders for sensors
+            replace_placeholder(relay_table_entry, "{SENSOR_RELAY_CHANNEL}", "-1");
+            replace_placeholder(relay_table_entry, "{MIN_SENSOR_RELAY_CHANNEL}", "-1");
+            replace_placeholder(relay_table_entry, "{MAX_SENSOR_RELAY_CHANNEL}", "-1");
+            // disable edit options for sensor relay cell in the template
+            replace_placeholder(relay_table_entry, "{RELAY_SENSOR_RELAY_DISABLED}", "disabled"); // Replace with style to hide the cell
 
             // Handle RELAY_INVERTED: Checkbox checked if inverted is true
             if (relay->inverted) {
@@ -1852,6 +1869,8 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     relay_type_t relay_type = RELAY_TYPE_ACTUATOR;  // Default type
     if (relay_type_item != NULL && cJSON_IsNumber(relay_type_item)) {
         relay_type = (relay_type_t)relay_type_item->valueint;
+    } else {
+        ESP_LOGW(TAG, "No 'relay_type' provided in JSON. Assuming default type: RELAY_TYPE_ACTUATOR");
     }
 
     // Load relay from NVS based on the relay_key
@@ -1909,6 +1928,35 @@ static esp_err_t update_relay_post_handler(httpd_req_t *req) {
     cJSON *relay_inverted_item = cJSON_GetObjectItem(data, "relay_inverted");
     if (relay_inverted_item != NULL && cJSON_IsBool(relay_inverted_item)) {
         relay->inverted = relay_inverted_item->valueint;
+    }
+
+    // if the relay is actuator -- let's take of the sensor channel assignment if provided in the JSON
+    if (relay->type == RELAY_TYPE_ACTUATOR) {
+        cJSON *sensor_relay_channel_item = cJSON_GetObjectItem(data, "sensor_relay_channel");
+        if (sensor_relay_channel_item != NULL && cJSON_IsNumber(sensor_relay_channel_item)) {
+            int sensor_relay_channel = sensor_relay_channel_item->valueint;
+            // get sensors list and the count of sensors to validate the provided sensor_relay_channel value
+            // this operations safe because we just load the list from memory
+            relay_unit_t *sensors_list = NULL;
+            uint16_t relay_sn_count = 0;
+            err = get_contact_sensor_list(&sensors_list, &relay_sn_count);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to load sensors list from memory for validating sensor_relay_channel value");
+                cJSON_Delete(json);
+                httpd_resp_send_500(req);
+                return ESP_FAIL;
+            }
+            // validate the sensor_relay_channel 
+            if (sensor_relay_channel < -1 || sensor_relay_channel >= relay_sn_count) {
+                ESP_LOGE(TAG, "Invalid sensor_relay_channel value: %d", sensor_relay_channel);
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid sensor_relay_channel value");
+                cJSON_Delete(json);
+                return ESP_FAIL;
+            }
+            relay->sensor_relay_channel = sensor_relay_channel;
+        } else {
+            ESP_LOGW(TAG, "No 'sensor_relay_channel' provided for actuator relay in JSON. Keeping existing value: %d", relay->sensor_relay_channel);
+        }
     }
 
     // save to NVS: actuators -- via setting the state, sensors -- just saving

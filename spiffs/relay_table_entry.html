@@ -21,12 +21,22 @@
                {RELAY_ENABLED}>
     </td>
     <td>
+        <input type="number" step="1"
+               name="{RELAY_KEY}_sensor_relay"
+               id="{RELAY_KEY}_sensor_relay"
+               value="{SENSOR_RELAY_CHANNEL}"
+               min="{MIN_SENSOR_RELAY_CHANNEL}" max="{MAX_SENSOR_RELAY_CHANNEL}"
+               {RELAY_SENSOR_RELAY_DISABLED}>
+    </td>
+    <td>
         <button onclick="RelayBoardRelays.updateRelay(
             '{RELAY_KEY}',
             {RELAY_CHANNEL},
+            {RELAY_TYPE},
             '{RELAY_KEY}_gpio_pin',
             '{RELAY_KEY}_enabled',
-            '{RELAY_KEY}_inverted'
+            '{RELAY_KEY}_inverted',
+            '{RELAY_KEY}_sensor_relay'
         )">Update</button>
         <span id="status_{RELAY_KEY}"></span>
     </td>

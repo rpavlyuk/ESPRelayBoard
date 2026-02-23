@@ -537,60 +537,70 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     // Publish state
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/state", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->state);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 1);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
 
     // Publish channel
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/channel", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->channel);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
 
     // Publish inverted
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/inverted", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->inverted);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
 
     // Publish gpio_pin
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/gpio_pin", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->gpio_pin);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
 
     // Publish enabled
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/enabled", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->enabled);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
+
+    // Publish contact sensor info
+    snprintf(topic, sizeof(topic), "%s/%s/%s/%s/sensor_relay_channel", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
+    snprintf(value, sizeof(value), "%i", (int)relay->sensor_relay_channel);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
+    msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
+    if (msg_id < 0) {
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
+        is_error = true;
+    }  
 
     // Publish type
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s/type", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     snprintf(value, sizeof(value), "%i", (int)relay->type);
-    ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", value, topic);
+    ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, value, topic);
     msg_id = esp_mqtt_client_publish(mqtt_client, topic, value, 0, MQTT_QOS_PUBLISH, 0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Topic %s not published", topic);
+        ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
         is_error = true;
     }
 
@@ -598,15 +608,15 @@ esp_err_t mqtt_publish_relay_data(const relay_unit_t *relay) {
     snprintf(topic, sizeof(topic), "%s/%s/%s/%s", mqtt_prefix, device_id, relay_key, (relay->type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
     char *relay_json = serialize_relay_unit(relay);
     if (relay_json != NULL) {
-        ESP_LOGI(TAG, "mqtt_publish_relay_data: Publish value (%s) to topic (%s)", relay_json, topic);
+        ESP_LOGI(TAG, "%s: Publish value (%s) to topic (%s)", __func__, relay_json, topic);
         msg_id = esp_mqtt_client_publish(mqtt_client, topic, relay_json, 0, MQTT_QOS_PUBLISH, 1);
         if (msg_id < 0) {
-            ESP_LOGW(TAG, "Topic %s not published", topic);
+            ESP_LOGW(TAG, "%s: Topic %s not published", __func__, topic);
             is_error = true;
         }
         free(relay_json);
     } else {
-        ESP_LOGW(TAG, "Get NULL when tried serialize_relay_unit(). Relay's JSON data will not be publised to MQTT.");
+        ESP_LOGW(TAG, "%s: Get NULL when tried serialize_relay_unit(). Relay's JSON data will not be publised to MQTT.", __func__);
         is_error = true;
     }
 
