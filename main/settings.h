@@ -129,7 +129,8 @@
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
 
-#define S_DEFAULT_OTA_UPDATE_URL                 "https://dist-repo-public.s3.eu-central-1.amazonaws.com/firmware/ESPRelayBoard/latest/ESPRelayBoard.bin"
+#define S_DEFAULT_OTA_UPDATE_URL \
+    "https://dist-repo-public.s3.eu-central-1.amazonaws.com/firmware/ESPRelayBoard/" CONFIG_IDF_TARGET "/latest/ESPRelayBoard.bin"
 #define S_DEFAULT_OTA_UPDATE_RESET_CONFIG       0   // 0 - Do not reset config, 1 - Reset config to defaults (except Wi-Fi) before applying update. 
     // This can be useful if the device becomes inaccessible due to misconfiguration and you want to ensure that the new firmware will be applied with default settings.
 

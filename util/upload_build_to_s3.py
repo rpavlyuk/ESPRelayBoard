@@ -8,8 +8,8 @@ Uploads:
 - storage.bin
 
 Destinations:
-- s3://dist-repo-public/firmware/ESPRelayBoard/latest/
-- s3://dist-repo-public/firmware/ESPRelayBoard/<DEVICE_SW_VERSION_NUM>/
+- s3://dist-repo-public/firmware/ESPRelayBoard/<IDF_TARGET>/latest/
+- s3://dist-repo-public/firmware/ESPRelayBoard/<IDF_TARGET>/<DEVICE_SW_VERSION_NUM>/
 
 Auth:
 - Uses boto3 default credential chain (incl. local AWS profiles).
@@ -75,7 +75,7 @@ def load_build_info(path: Path) -> Dict[str, str]:
     except json.JSONDecodeError as e:
         raise SystemExit(f"ERROR: invalid JSON in {path}: {e}")
 
-    required = ["DEVICE_SW_VERSION_NUM"]
+    required = ["DEVICE_SW_VERSION_NUM", "IDF_TARGET"]
     for k in required:
         if k not in data or not str(data[k]).strip():
             raise SystemExit(f"ERROR: build info missing required key '{k}' in {path}")
@@ -105,13 +105,13 @@ def make_session(profile: str | None, region: str | None):
         return boto3.Session(profile_name=profile, region_name=region)
     return boto3.Session(region_name=region)
 
+
 def upload_one(s3_client, local_path: Path, bucket: str, key: str, dry_run: bool) -> None:
     if dry_run:
         print(f"[DRY-RUN] upload: {local_path} -> s3://{bucket}/{key}")
         return
 
     try:
-        # Guess content type from filename
         content_type, _ = mimetypes.guess_type(str(local_path))
         if content_type is None:
             content_type = "application/octet-stream"
@@ -144,7 +144,7 @@ def main() -> None:
         else (build_dir / "build_info.json")
     )
 
-    # Local artifact paths (as requested)
+    # Local artifact paths
     artifact_build_info = build_dir / "build_info.json"
     artifact_firmware = build_dir / "ESPRelayBoard.bin"
     artifact_storage = build_dir / "storage.bin"
@@ -157,17 +157,20 @@ def main() -> None:
 
     build_info = load_build_info(build_info_path)
     version = str(build_info["DEVICE_SW_VERSION_NUM"]).strip()
+    target = str(build_info["IDF_TARGET"]).strip().lower()
+
+    if not target:
+        raise SystemExit(f"ERROR: build info missing valid 'IDF_TARGET' in {build_info_path}")
 
     # Determine destinations
-    latest_prefix = s3_key(BASE_PREFIX, "latest")
-    version_prefix = s3_key(BASE_PREFIX, version)
+    latest_prefix = s3_key(BASE_PREFIX, target, "latest")
+    version_prefix = s3_key(BASE_PREFIX, target, version)
 
-    # Create session + client (auth profile handled by boto3)
+    # Create session + client
     session = make_session(args.profile, args.region)
     s3_client = session.client("s3")
 
-    # Quick sanity check: who am I? (helps confirm correct profile/credentials)
-    # (We keep it optional-ish: if STS fails due to permissions, we still try S3.)
+    # Optional sanity check
     try:
         sts = session.client("sts")
         ident = sts.get_caller_identity()

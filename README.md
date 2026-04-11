@@ -140,6 +140,11 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
    idf.py -p /dev/ttyUSB0 build flash monitor
    ```
    You will get the device console log as the result of the command.
+8. (optional) **Install boto3 for 'push-repo' action**
+   ```
+   pip3 install boto3
+   ```
+   This will allow you using `idf.py push-repo` command to push firmware to your S3-compatible storage.
 
 > [!NOTE]
 > Every time you change the board type (e.g., from ESP32-C6 to ESP32-S3, the framework is re-creating `sdkconfig` file which makes some very important settings gone. Thus, you (might) need to change/set some settings **if you've changed the device board**:
