@@ -141,6 +141,8 @@
 /**
  * Settings handlers and structures
  */
+static const char *OTA_TAG = "OTAUpdate";
+
 // The longest of all string settings, except CA certificates
 #define OLD_VALUE_STR_MAX_LEN    256
 
