@@ -10,6 +10,8 @@ extern esp_netif_t *esp_netif_sta;
 
 static const char *wifi_disc_reason_to_str(uint8_t r);
 
+static void print_prov_qr_softap(const char *service_name, const char *pop);
+
 void generate_softap_credentials();
 
 esp_err_t log_sta_credentials();

@@ -9,8 +9,13 @@
 #include <stdio.h>
 #include "esp_log.h"
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+#include "network_provisioning/manager.h"
+#include "network_provisioning/scheme_softap.h"
+#else
 #include "wifi_provisioning/manager.h"
 #include "wifi_provisioning/scheme_softap.h"
+#endif
 
 #include "non_volatile_storage.h"
 #if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
@@ -115,6 +120,18 @@ void app_main(void) {
     /* Initialize WIFI */
     initialize_wifi();
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    // Initialize network provisioning manager
+    network_prov_mgr_config_t wifi_config = {
+        .scheme = network_prov_scheme_softap,
+        .scheme_event_handler = NETWORK_PROV_EVENT_HANDLER_NONE
+    };
+    ESP_ERROR_CHECK(network_prov_mgr_init(wifi_config));
+    ESP_LOGI(TAG, "Network provisioning manager initialization complete");
+
+    // Check if the device is already provisioned
+    ESP_ERROR_CHECK(network_prov_mgr_is_wifi_provisioned(&wifi_provisioned));
+#else
     // Initialize Wi-Fi provisioning manager
     wifi_prov_mgr_config_t wifi_config = {
         .scheme = wifi_prov_scheme_softap,
@@ -124,8 +141,8 @@ void app_main(void) {
     ESP_LOGI(TAG, "WiFi provisioning manager initialization complete");
 
     // Check if the device is already provisioned
-    
     ESP_ERROR_CHECK(wifi_prov_mgr_is_provisioned(&wifi_provisioned));
+#endif
 
     // Initialize and start Wi-Fi
     start_wifi(wifi_provisioned);

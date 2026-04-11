@@ -54,7 +54,7 @@ To get started, you will need:
   - Relay. E.g., SRD-05VDC-SL-C-based mechanical relay module.
   - **OR** ESP32-based relay board with minimum 4Mb flash in a single-board composition. Most of such boards use `ESP32` variant of ESP32. 
 - **Software**:
-  - ESP-IDF framework (version 5.5 or higher recommended installed and configured).
+  - ESP-IDF framework (version 5.5 or higher recommended installed and configured, 6.0 is recommended).
   - Operating system: `Linux` (tested, recommended), `macOS` (tested, recommended), `Windows` (tested)
 
 ## Tested Relay Boards / Configurations

@@ -104,6 +104,15 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 			//ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
 			break;
 #endif
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+        case HTTP_EVENT_ON_HEADERS_COMPLETE:
+            // Headers fully received
+            break;
+
+        case HTTP_EVENT_ON_STATUS_CODE:
+            // Status code became available
+            break;
+#endif
 	}
 	return ESP_OK;
 }
