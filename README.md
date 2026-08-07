@@ -550,30 +550,31 @@ The device is exposing a simple JSON API to control relays and get units informa
     }
 }
  ```
-7. **Forcing device reboot via API:**
- * Endpoint: `/api/setting/update`
+7. **Device reboot via API:**
+ * Endpoint: `/api/control`
  * Method: POST
  * Request payload (example):
  ```
 {
     "device_id": "9XXE6E0MMC5C",
     "device_serial": "VU7303USWVEP6ENQ3POTTFHVV7JH97QX",
-    "data": {
+    "params": {
+      "mode": 0
     },
-    "action": 2
+    "action": 1
 }
  ```
  * Response payload (example):
  ```
- {
-    "status": {
-        "success": 0,
-        "failed": 0,
-        "total": 0
-    },
-    "details": {}
-}
+    {
+    "status": 0, // 0=success, 1=error, 2,3,...=other error codes
+    "message": "Rebooting device"
+    }
  ```
+ * Reboot modes:
+   * ```0```: Using ```reboot_device()``` function which gently shuts all services down
+   * ```1```: Using ```esp_restart()``` which sends ESP device to reboot
+   * ```2```: Using ```abort()``` which crashes program execution and forces CPU to reboot 
 
 ## Known issues, problems and TODOs:
 * Static IP support needed

@@ -851,6 +851,9 @@ static esp_err_t config_get_handler(httpd_req_t *req) {
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "ESP device is out of free memory");
+#if WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY
+    WEB_ON_OUT_OF_MEMORY_FUNCTION();
+#endif
         return ESP_FAIL;
     }
 
@@ -1043,6 +1046,9 @@ static esp_err_t submit_config_handler(httpd_req_t *req) {
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "ESP device is out of free memory");
+#if WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY
+    WEB_ON_OUT_OF_MEMORY_FUNCTION();
+#endif
         return ESP_FAIL;
     }
 
@@ -1326,6 +1332,9 @@ static esp_err_t ca_cert_post_handler(httpd_req_t *req) {
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "ESP device is out of free memory");
+#if WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY
+    WEB_ON_OUT_OF_MEMORY_FUNCTION();
+#endif
         return ESP_FAIL;
     }
 
@@ -1527,6 +1536,9 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "ESP Device ran out of free memory");
+#if WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY
+    WEB_ON_OUT_OF_MEMORY_FUNCTION();
+#endif
         return ESP_FAIL;
     }
 
@@ -1552,6 +1564,9 @@ static esp_err_t relays_get_handler(httpd_req_t *req) {
                  (unsigned)esp_get_minimum_free_heap_size());
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "ESP Device ran out of free memory");
+#if WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY
+    WEB_ON_OUT_OF_MEMORY_FUNCTION();
+#endif
         return ESP_FAIL;
     }
 
@@ -3203,6 +3218,15 @@ static esp_err_t api_control_handler(httpd_req_t *req) {
     switch (action) {
         case 0:
             ESP_LOGI(TAG, "No action requested in control request");
+            // can be used as a simple ping to check if the device is alive and responding
+            cJSON *response = cJSON_CreateObject();
+            cJSON_AddNumberToObject(response, "status", 0); // success
+            cJSON_AddStringToObject(response, "message", "NOOP");
+            char *out = cJSON_PrintUnformatted(response);
+            cJSON_Delete(response);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+            free(out);
             break;
         case 1: // restart device
             ESP_LOGI(TAG, "Restarting device as per control request");

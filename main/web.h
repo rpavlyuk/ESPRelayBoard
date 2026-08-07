@@ -17,6 +17,9 @@
 #define ENABLE_STATIC_NOCACHE_HEADER   true  // set to true to add no-cache headers to static file responses
 #define ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT false  // set to true to enable placeholder replacement in config.html
 
+#define WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY  true  // set to true to enable automatic reboot on out-of-memory situations
+#define WEB_ON_OUT_OF_MEMORY_FUNCTION       abort  // Function to call when out of memory. Options: esp_restart, abort, or custom function.      
+
 
 void run_http_server(void *param);
 esp_err_t stop_http_server(httpd_handle_t server);

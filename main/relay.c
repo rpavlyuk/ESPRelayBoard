@@ -582,8 +582,15 @@ esp_err_t load_relay_actuator_from_nvs(const char *key, relay_unit_t *relay) {
  * @return esp_err_t result of the operation
  */
 esp_err_t get_relay_actuator_from_memory_by_channel(int channel, relay_unit_t **relay) {
+    // do not try loading device from memory if BIT_DEVICE_READY is not set, as it means that the device is not fully initialized yet
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_DEVICE_READY)) {
+        ESP_LOGW(TAG, "%s: Device is not fully initialized yet. Cannot get relay actuator from memory. Ignore this message during device startup.", __func__);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Check if relay units are loaded in memory
     if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
-        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        ESP_LOGE(TAG, "%s: Relay units are not loaded in memory.", __func__);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -606,8 +613,14 @@ esp_err_t get_relay_actuator_from_memory_by_channel(int channel, relay_unit_t **
  * @return esp_err_t result of the operation
  */
 esp_err_t get_relay_actuator_from_memory_by_key(const char *key, relay_unit_t **relay) {
+    // do not try loading device from memory if BIT_DEVICE_READY is not set, as it means that the device is not fully initialized yet
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_DEVICE_READY)) {
+        ESP_LOGW(TAG, "%s: Device is not fully initialized yet. Cannot get relay actuator from memory. Ignore this message during device startup.", __func__);
+        return ESP_ERR_INVALID_STATE;
+    }   
+    // Check if relay units are loaded in memory
     if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
-        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        ESP_LOGE(TAG, "%s: Relay units are not loaded in memory.", __func__);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -661,8 +674,15 @@ esp_err_t load_relay_sensor_from_nvs(const char *key, relay_unit_t *relay) {
  * @return esp_err_t result of the operation
  */
 esp_err_t get_relay_sensor_from_memory_by_channel(int channel, relay_unit_t **relay) {
+    // do not try loading device from memory if BIT_DEVICE_READY is not set, as it means that the device is not fully initialized yet
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_DEVICE_READY)) {
+        ESP_LOGW(TAG, "%s: Device is not fully initialized yet. Cannot get relay sensor from memory. Ignore this message during device startup.", __func__);
+        return ESP_ERR_INVALID_STATE;
+    }   
+
+    // Check if relay units are loaded in memory
     if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
-        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        ESP_LOGE(TAG, "%s: Relay units are not loaded in memory.", __func__);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -685,8 +705,15 @@ esp_err_t get_relay_sensor_from_memory_by_channel(int channel, relay_unit_t **re
  * @return esp_err_t result of the operation
  */
 esp_err_t get_relay_sensor_from_memory_by_key(const char *key, relay_unit_t **relay) {
+    // do not try loading device from memory if BIT_DEVICE_READY is not set, as it means that the device is not fully initialized yet
+    if (!(xEventGroupGetBits(g_sys_events) & BIT_DEVICE_READY)) {
+        ESP_LOGW(TAG, "%s: Device is not fully initialized yet. Cannot get relay sensor from memory. Ignore this message during device startup.", __func__);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Check if relay units are loaded in memory
     if (!(xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY)) {
-        ESP_LOGE(TAG, "Relay units are not loaded in memory.");
+        ESP_LOGE(TAG, "%s: Relay units are not loaded in memory.", __func__);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -1257,11 +1284,30 @@ esp_err_t relay_set_state(relay_unit_t *relay, relay_state_t state, bool persist
     if (relay->sensor_relay_channel >= 0) {
         // Okay, we have a state dependency on the corresponding sensor relay. We need to get its state and force it instead of the request state, because in this configuration the sensor state has a priority.
         relay_unit_t *sensor_relay = NULL;
-        if (get_relay_sensor_from_memory_by_channel(relay->sensor_relay_channel, &sensor_relay) == ESP_OK) {
+        esp_err_t err;
+        // if bit BIT_UNITS_IN_MEMORY is set and device is ready: load the sensor relay from memory, otherwise load it from NVS
+        if ((xEventGroupGetBits(g_sys_events) & BIT_UNITS_IN_MEMORY) && (xEventGroupGetBits(g_sys_events) & BIT_DEVICE_READY)) {
+            ESP_LOGD(TAG, "%s: Relay units are in memory, loading the sensor relay from memory.", __func__);
+            err = get_relay_sensor_from_memory_by_channel(relay->sensor_relay_channel, &sensor_relay);
+        } else {
+            ESP_LOGW(TAG, "%s: Relay units are not in memory or device is still starting, loading the sensor relay from NVS.", __func__);
+            char *sensor_nvs_key = get_contact_sensor_nvs_key(relay->sensor_relay_channel);
+            if (sensor_nvs_key == NULL) {
+                ESP_LOGE(TAG, "Failed to get NVS key for sensor relay channel %d", relay->sensor_relay_channel);
+                return ESP_FAIL; // Handle error accordingly
+            }
+            relay_unit_t sensor_relay_temp;
+            err = load_relay_sensor_from_nvs(sensor_nvs_key, &sensor_relay_temp);
+            free(sensor_nvs_key);
+            if (err == ESP_OK) {
+                sensor_relay = &sensor_relay_temp;
+            }
+        }
+        if (err == ESP_OK && sensor_relay != NULL) {
             ESP_LOGI(TAG, "Forcing sensor state %d (channel %d) will be set to the actuator channel %d.", sensor_relay->state, sensor_relay->channel, relay->channel);
             state = sensor_relay->state; // override the requested state with the sensor state
         } else {
-            ESP_LOGE(TAG, "Unable to find the corresponding sensor relay in memory for channel %d, despite it being set for relay unit %d", relay->sensor_relay_channel, relay->channel);
+            ESP_LOGE(TAG, "Unable to find the corresponding sensor relay for channel %d, despite it being set for relay unit %d", relay->sensor_relay_channel, relay->channel);
             return ESP_FAIL;
         }
     } else {

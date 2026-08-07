@@ -500,6 +500,11 @@ esp_err_t device_settings_init() {
         }
         if(load_relay_actuator_from_nvs(relay_nvs_key, relay) == ESP_OK) {
             ESP_LOGI(TAG, "Found relay channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+#if _DEVICE_ENGINEERING_BUILD
+            char *relay_json_str = serialize_relay_unit(relay);
+            ESP_LOGI(TAG, "Relay object: %s", relay_json_str);
+            free(relay_json_str);
+#endif
             // cleanup
             if (INIT_RELAY_ON_LOAD) {
                 ESP_ERROR_CHECK(relay_gpio_deinit(relay));
@@ -562,6 +567,11 @@ esp_err_t device_settings_init() {
         }
         if(load_relay_sensor_from_nvs(relay_nvs_key, relay) == ESP_OK) {
             ESP_LOGI(TAG, "Found sensor contact channel %i stored in NVS at %s. PIN %i", i_channel, relay_nvs_key, relay->gpio_pin);
+ #if _DEVICE_ENGINEERING_BUILD           
+            char *relay_json_str = serialize_relay_unit(relay);
+            ESP_LOGI(TAG, "Relay object: %s", relay_json_str);
+            free(relay_json_str);       
+#endif     
             // cleanup
             if (INIT_SENSORS_ON_LOAD) {
                 ESP_ERROR_CHECK(relay_gpio_deinit(relay));
