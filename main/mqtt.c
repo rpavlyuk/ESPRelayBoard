@@ -881,7 +881,7 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         }
 
         // Fill in HomeAssistant entity discovery structure for the relay
-        if (ha_entity_discovery_fullfill(entity_discovery, device_class, relay_key, metric,relay_list[i].type) != ESP_OK) {
+        if (ha_entity_discovery_fullfill(entity_discovery, device_class, relay_key, metric, relay_list[i].type) != ESP_OK) {
             ESP_LOGE(TAG, "Unable to initiate entity discovery for %s", metric);
             free(entity_discovery);
             return ESP_FAIL;
@@ -921,7 +921,6 @@ esp_err_t mqtt_publish_home_assistant_config(const char *device_id, const char *
         free(relay_key);
         relay_key = NULL;
         ha_entity_discovery_free(entity_discovery);
-        free(entity_discovery);
         entity_discovery = NULL;
         // memset(entity_discovery, 0, sizeof(ha_entity_discovery_t)); // reset for next use
 

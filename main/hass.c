@@ -51,6 +51,9 @@ esp_err_t ha_device_init(ha_device_t *device) {
     esp_netif_ip_info_t ip_info;
     if (esp_netif_get_ip_info(esp_netif_sta, &ip_info) == ESP_OK) {
         sprintf(device->configuration_url, "http://%d.%d.%d.%d/", IP2STR(&ip_info.ip));
+    } else {
+        ESP_LOGW(TAG, "Failed to get IP info for configuration URL");
+        strcpy(device->configuration_url, "http://0.0.0.0/");  // Fallback URL if IP info is not available
     }
     ESP_LOGD(TAG, "DEVICE: assigned configuration_url: %s", device->configuration_url);
 
@@ -150,10 +153,12 @@ cJSON *ha_device_to_JSON(ha_device_t *device) {
 /**
  * @brief: Present device entity as string 
  */
-char *ha_device_to_string(ha_device_t *device) {
+char *ha_device_to_string(const ha_device_t *device, char *buf, size_t buf_size) {
 
-    char buf[512];
-    memset(buf, 0, sizeof(buf));
+    if (buf == NULL || buf_size == 0) {
+        return NULL;
+    }
+    memset(buf, 0, buf_size);
     char ident[256];
     memset(ident, 0, sizeof(ident));
 
@@ -216,6 +221,13 @@ esp_err_t ha_availability_init(ha_entity_availability_t *availability) {
 
     // value template
     availability->value_template = strdup(HA_DEVICE_AVAILABILITY_VAL_TPL);
+    if (availability->value_template == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for availability value template");
+        free(availability->topic);
+        free(mqtt_prefix);
+        free(device_id);
+        return ESP_ERR_NO_MEM;
+    }
     ESP_LOGD(TAG, "DISCOVERY::AVAILABILITY: assigned availability value template: %s", availability->value_template);
 
     // Clean up temporary variables
@@ -331,7 +343,8 @@ esp_err_t ha_entity_discovery_init(ha_entity_discovery_t *discovery) {
     esp_err_t err = ha_availability_init(&discovery->availability[0]);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize availability");
-        free(discovery->availability);
+        free(discovery->availability); // no need to call ha_availability_free in case of allocation failure because failure means its properties were freed/never allocated, so we just free the pointer  
+        discovery->availability = NULL;
         return err;
     }
 
@@ -339,15 +352,18 @@ esp_err_t ha_entity_discovery_init(ha_entity_discovery_t *discovery) {
     discovery->device = (ha_device_t *)malloc(sizeof(ha_device_t));
     if (discovery->device == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for DEVICE");
-        free(discovery->availability);
+        ha_availability_free(discovery->availability); // here we should call ha_availability_free(&discovery->availability) to free the allocated properties of availability before freeing the pointer itself
+        discovery->availability = NULL;
         return ESP_ERR_NO_MEM;
     }
 
     err = ha_device_init(discovery->device);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize DEVICE");
-        free(discovery->availability);
+        ha_availability_free(discovery->availability); // here we should call ha_availability_free(&discovery->availability) to free the allocated properties of availability before freeing the pointer itself
+        discovery->availability = NULL;
         free(discovery->device);
+        discovery->device = NULL;
         return err;
     }
 
@@ -364,17 +380,24 @@ esp_err_t ha_entity_discovery_init(ha_entity_discovery_t *discovery) {
     discovery->origin = (ha_entity_origin_t *)malloc(sizeof(ha_entity_origin_t));
     if (discovery->origin == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for ORIGIN");
-        free(discovery->availability);
-        free(discovery->device);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        discovery->device = NULL; // no need to free 'device' as it is already freed by ha_device_free()
         return ESP_ERR_NO_MEM;
     }
 
     err = ha_origin_init(discovery->origin);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize ORIGIN");
-        free(discovery->availability);
-        free(discovery->device);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        discovery->device = NULL; // no need to free 'device' as it is already freed by ha_device_free()
         free(discovery->origin);
+        discovery->origin = NULL;
         return err;
     }
 
@@ -385,6 +408,7 @@ esp_err_t ha_entity_discovery_init(ha_entity_discovery_t *discovery) {
 
     // Initialize discovery fields
     discovery->enabled_by_default = true;
+    discovery->optimistic = false;
 
     return ESP_OK;
 }
@@ -410,32 +434,72 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
     char *device_serial = NULL;
 
     err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id);  // Removed & before device_id
-    if (err != ESP_OK || device_id[0] == '\0') {  // Check if the device_id was actually read
-        ESP_LOGE(TAG, "Failed to read device ID from NVS or device ID is empty");
-        return err;
+    if (err != ESP_OK || device_id == NULL || device_id[0] == '\0') {
+        ESP_LOGE(TAG, "Failed to read device ID or device ID is empty");
+
+        
+        if (device_id != NULL) free(device_id);
+
+        // Base initialization succeeded before this point.
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+
+        *discovery = (ha_entity_discovery_t){0};
+
+        return err != ESP_OK ? err : ESP_ERR_INVALID_ARG;
     }
 
     err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial);  // Removed & before device_serial
-    if (err != ESP_OK || device_serial[0] == '\0') {  // Check if the device_serial was actually read
+    if (err != ESP_OK || device_serial == NULL || device_serial[0] == '\0') {  // Check if the device_serial was actually read
         ESP_LOGE(TAG, "Failed to read device serial from NVS or device serial is empty");
-        free(device_id);
-        return err;
+        free(device_id); // device_id cannot be NULL here because we already checked it above
+        if (device_serial != NULL) free(device_serial);
+
+        // Base initialization succeeded before this point.
+        ha_availability_free(discovery->availability);
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+
+        *discovery = (ha_entity_discovery_t){0};
+        return err != ESP_OK ? err : ESP_ERR_INVALID_ARG;
     }
 
     // Allocate memory for object_id and format it
-    if (device_id != NULL || relay_key != NULL) {  // Double-check for NULL before strlen
+    if (metric != NULL && device_id != NULL && relay_key != NULL) {  // Double-check for NULL before strlen
         discovery->object_id = (char *)malloc(strlen(device_id) + strlen(relay_key) + 2);  // +2 for '_' and null terminator
         if (discovery->object_id == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for object_id");
             free(device_id);
             free(device_serial);
+
+            // Base initialization succeeded before this point.
+            ha_availability_free(discovery->availability);
+            // free(discovery->availability); // no need to free as it is not dynamically allocated
+            discovery->availability = NULL;
+            ha_device_free(discovery->device);
+            ha_origin_free(discovery->origin);
+
+            *discovery = (ha_entity_discovery_t){0};
             return ESP_ERR_NO_MEM;
         }
         sprintf(discovery->object_id, "%s_%s", device_id, relay_key);
     } else {
-        ESP_LOGE(TAG, "Invalid device_id or metric");
+        ESP_LOGE(TAG, "Invalid relay_key (NULL) passed to ha_entity_discovery_fullfill");
         free(device_id);
         free(device_serial);
+
+        // Base initialization succeeded before this point.
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -447,41 +511,70 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
         ESP_LOGE(TAG, "Failed to read MQTT prefix from NVS");
         free(device_id);
         free(device_serial);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        free(discovery->object_id);       
+        *discovery = (ha_entity_discovery_t){0};
         return err;
     }
 
     size_t topic_len = strlen(mqtt_prefix) + strlen(device_id) + strlen((relay_type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR) + strlen(relay_key) + 4;  // for slashes and null terminator
 
-    discovery->json_attributes_topic = (char *)malloc(topic_len);
-    if (discovery->json_attributes_topic == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for JSON attributes topic");
-        free(mqtt_prefix);
-        free(device_id);
-        free(device_serial);
-        return ESP_ERR_NO_MEM;
-    }
-    snprintf(discovery->json_attributes_topic, topic_len, "%s/%s/%s/%s", mqtt_prefix, device_id, relay_key, (relay_type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
-
     discovery->state_topic = (char *)malloc(topic_len);
     if (discovery->state_topic == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for state topic");
-        free(discovery->json_attributes_topic);
-        free(mqtt_prefix);
         free(device_id);
         free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);   
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_NO_MEM;
     }
     snprintf(discovery->state_topic, topic_len, "%s/%s/%s/%s", mqtt_prefix, device_id, relay_key, (relay_type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
 
+    discovery->json_attributes_topic = (char *)malloc(topic_len);
+    if (discovery->json_attributes_topic == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for json_attributes_topic");
+        free(device_id);
+        free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);
+        free(discovery->state_topic);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
+        return ESP_ERR_NO_MEM;
+    }
+    snprintf(discovery->json_attributes_topic, topic_len, "%s/%s/%s/%s", mqtt_prefix, device_id, relay_key, (relay_type == RELAY_TYPE_ACTUATOR)?HA_DEVICE_STATE_PATH_RELAY:HA_DEVICE_STATE_PATH_SENSOR);
+
+ 
     // Allocate memory for unique_id and format it
     discovery->unique_id = (char *)malloc(strlen(device_id) + strlen(device_serial) + strlen(relay_key) + 3);  // +3 for two '_' and null terminator
     if (discovery->unique_id == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for unique_id");
-        free(discovery->json_attributes_topic);
-        free(discovery->state_topic);
-        free(mqtt_prefix);
         free(device_id);
         free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);
+        free(discovery->state_topic);
+        free(discovery->json_attributes_topic);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_NO_MEM;
     }
     sprintf(discovery->unique_id, "%s_%s_%s", device_id, device_serial, relay_key);
@@ -497,13 +590,19 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
     discovery->value_template = (char *)malloc(value_template_len);
     if (discovery->value_template == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for value_template");
-        free(discovery->json_attributes_topic);
-        free(discovery->state_topic);
-        free(discovery->unique_id);
-        free(discovery->object_id);
-        free(mqtt_prefix);
         free(device_id);
         free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);
+        free(discovery->state_topic);
+        free(discovery->json_attributes_topic);
+        free(discovery->unique_id);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_NO_MEM;
     }
     sprintf(discovery->value_template, "%s%s%s", template_prefix, metric, template_suffix);
@@ -523,16 +622,22 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
     // set command enabled
     topic_len = strlen(discovery->state_topic) + strlen("/set") + 1;  // for slashes and null terminator
     discovery->command_topic = (char *)malloc(topic_len);
-    if (discovery->json_attributes_topic == NULL) {
+    if (discovery->command_topic == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for command topic");
-            free(discovery->json_attributes_topic);
-            free(discovery->state_topic);
-            free(discovery->unique_id);
-            free(discovery->object_id);
-            free(discovery->value_template);
-            free(mqtt_prefix);
-            free(device_id);
-            free(device_serial);
+        free(device_id);
+        free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);
+        free(discovery->state_topic);
+        free(discovery->json_attributes_topic);
+        free(discovery->unique_id);
+        free(discovery->value_template);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_NO_MEM;
     }
     snprintf(discovery->command_topic, topic_len, "%s/set", discovery->state_topic);
@@ -547,21 +652,28 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
     topic_len = strlen(relay_key) + strlen(name_suffix) + 1;  // for slashes and null terminator
     discovery->name = (char *)malloc(topic_len);
     if (discovery->name == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for name topic");
-            if (discovery->command_topic != NULL) { free(discovery->command_topic); }
-            free(discovery->json_attributes_topic);
-            free(discovery->state_topic);
-            free(discovery->unique_id);
-            free(discovery->object_id);
-            free(discovery->value_template);
-            free(mqtt_prefix);
-            free(device_id);
-            free(device_serial);
+        ESP_LOGE(TAG, "Failed to allocate memory for name");
+        free(device_id);
+        free(device_serial);
+        free(mqtt_prefix);        
+        free(discovery->object_id);
+        free(discovery->state_topic);
+        free(discovery->json_attributes_topic);
+        free(discovery->unique_id);
+        free(discovery->value_template);
+        free(discovery->command_topic);
+        ha_availability_free(discovery->availability);
+        // free(discovery->availability); // no need to free as it is not dynamically allocated
+        discovery->availability = NULL;
+        ha_device_free(discovery->device);
+        ha_origin_free(discovery->origin);
+        *discovery = (ha_entity_discovery_t){0};
         return ESP_ERR_NO_MEM;
     }
     snprintf(discovery->name, topic_len, "%s%s", name_suffix, relay_key);
 
     // Clean up temporary variables
+    free(mqtt_prefix);
     free(device_id);
     free(device_serial);
 
@@ -570,6 +682,10 @@ esp_err_t ha_entity_discovery_fullfill(ha_entity_discovery_t *discovery, const c
 
 /**
  * @brief: Destroy entity discovery entity and free up memory
+ * @note: This function frees all dynamically allocated members of the discovery struct and the struct itself.
+ * @param[in] discovery Pointer to the discovery struct to be freed.
+ * 
+ * @return ESP_OK on success.
  */
 esp_err_t ha_entity_discovery_free(ha_entity_discovery_t *discovery) {
 
@@ -594,7 +710,10 @@ esp_err_t ha_entity_discovery_free(ha_entity_discovery_t *discovery) {
 
         free(discovery->name);
 
-        // free(discovery);  // Finally, free the discovery struct itself
+        free(discovery);  // Finally, free the discovery struct itself
+    } else {
+        ESP_LOGW(TAG, "Attempted to free a NULL discovery struct.");
+        return ESP_ERR_INVALID_ARG;
     }
 
     return ESP_OK;

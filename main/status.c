@@ -20,6 +20,16 @@
 
 static heap_trace_record_t trace_buffer[NUM_RECORDS];  // Buffer to store the trace records
 
+/**
+ * System status monitoring task
+ * This task periodically checks and logs system status information such as heap usage,
+ * MQTT connectivity, and memory guard status. It also publishes system status to MQTT if enabled.
+ * @param pvParameters Pointer to task parameters (not used)
+ * @note The task runs indefinitely and should be created as a FreeRTOS task.
+ * @note The status update interval is configurable via NVS and defaults to S_DEFAULT_STATUS_UPDATE_INTERVAL.
+ * @note The task uses various compile-time flags to enable or disable specific status checks, such as heap tracing, MQTT status, and memory guard monitoring.
+ * @note The task logs status information to the console using ESP_LOGI and ESP_LOGE.
+ */
 void status_task(void *pvParameters) {
     ESP_LOGI(STATUS_TAG, "Starting system status monitoring task");
 #if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
@@ -237,7 +247,7 @@ void status_init() {
 #endif
 
     // Start monitoring task
-    xTaskCreate(status_task, "status_task", 4096, NULL, 1, NULL); // 4096 bytes of stack space
+    xTaskCreate(status_task, "status_task", 4096, NULL, ( 2 | portPRIVILEGE_BIT ), NULL); // 4096 bytes of stack space
 }
 
 /**

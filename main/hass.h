@@ -54,6 +54,12 @@ typedef struct {
     char *url;
 } ha_entity_origin_t;
 
+/**
+ * @brief: Structure representing a device entity in Home Assistant
+ * 
+ * @note: Must be heap allocated to make all API functions work correctly and then freed using ha_entity_discovery_free() when no longer needed.
+ * 
+ */
 typedef struct {
     ha_entity_availability_t *availability;
     ha_device_t *device;
@@ -77,7 +83,7 @@ typedef struct {
 esp_err_t ha_device_init(ha_device_t *device);
 esp_err_t ha_device_free(ha_device_t *device);
 cJSON *ha_device_to_JSON(ha_device_t *device);
-char *ha_device_to_string(ha_device_t *device);
+char *ha_device_to_string(const ha_device_t *device, char *buf, size_t buf_size);
 esp_err_t ha_availability_init(ha_entity_availability_t *availability);
 esp_err_t ha_availability_free(ha_entity_availability_t *availability);
 cJSON *ha_availability_to_JSON(ha_entity_availability_t *availability);
