@@ -353,6 +353,11 @@ void assign_static_page_variables(char *html_output) {
     replace_placeholder(html_output, "{MIN_MEMGUARD_THRESHOLD}", f_len);
     snprintf(f_len, sizeof(f_len), "%i", MEMGUARD_THRESHOLD_MAX);
     replace_placeholder(html_output, "{MAX_MEMGUARD_THRESHOLD}", f_len);
+
+    snprintf(f_len, sizeof(f_len), "%i", STATUS_UPDATE_INTERVAL_MIN);
+    replace_placeholder(html_output, "{MIN_STATUS_UPDATE_INTERVAL}", f_len);
+    snprintf(f_len, sizeof(f_len), "%i", STATUS_UPDATE_INTERVAL_MAX);
+    replace_placeholder(html_output, "{MAX_STATUS_UPDATE_INTERVAL}", f_len);
 }
 
 /**

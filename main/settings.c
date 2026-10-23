@@ -425,6 +425,21 @@ esp_err_t base_settings_init() {
         }
     }
 
+    // Parameter: Status update interval
+    uint32_t status_upd_int;
+    if (nvs_read_uint32(S_NAMESPACE, S_KEY_STATUS_UPDATE_INTERVAL, &status_upd_int) == ESP_OK) {
+        ESP_LOGI(TAG, "Found parameter %s in NVS: %li", S_KEY_STATUS_UPDATE_INTERVAL, status_upd_int);
+    } else {
+        ESP_LOGW(TAG, "Unable to find parameter %s in NVS. Initiating...", S_KEY_STATUS_UPDATE_INTERVAL);
+        status_upd_int = S_DEFAULT_STATUS_UPDATE_INTERVAL;
+        if (nvs_write_uint32(S_NAMESPACE, S_KEY_STATUS_UPDATE_INTERVAL, status_upd_int) == ESP_OK) {
+            ESP_LOGI(TAG, "Successfully created key %s with value %li", S_KEY_STATUS_UPDATE_INTERVAL, status_upd_int);
+        } else {
+            ESP_LOGE(TAG, "Failed creating key %s with value %li", S_KEY_STATUS_UPDATE_INTERVAL, status_upd_int);
+            return ESP_FAIL;
+        }
+    }
+
     return ESP_OK;
 
 }
@@ -2011,6 +2026,30 @@ static esp_err_t handle_setting_ota_upd_rescfg(const char *key, const cJSON *v, 
                    reset_config,
                    OTA_UPDATE_RESET_CONFIG_MIN,
                    OTA_UPDATE_RESET_CONFIG_MAX);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return ESP_OK; // generic writer will store it
+}
+
+/**
+ * @brief: Handle status update interval setting validation handler
+ * 
+ * @param key: The key of the setting being updated (e.g., "status_upd_int")
+ * @param v: cJSON object containing the new status update interval value
+ * @param[out] out: Pointer to setting_update_msg_t structure to store the result
+ * 
+ * @return ESP_OK on success, ESP_FAIL otherwise
+ */
+static esp_err_t handle_setting_status_upd_int(const char *key, const cJSON *v, setting_update_msg_t *out) {
+    int interval = (int)v->valuedouble;
+
+    if (interval < STATUS_UPDATE_INTERVAL_MIN || interval > STATUS_UPDATE_INTERVAL_MAX) {
+        set_result(out, ESP_ERR_INVALID_ARG,
+                   "status_upd_int invalid (%d). Allowed: %d..%d",
+                   interval,
+                   STATUS_UPDATE_INTERVAL_MIN,
+                   STATUS_UPDATE_INTERVAL_MAX);
         return ESP_ERR_INVALID_ARG;
     }
 

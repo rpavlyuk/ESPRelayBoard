@@ -180,8 +180,11 @@ void status_task(void *pvParameters) {
         mqtt_cycle++;
 #endif
 
-        // Delay for a period (e.g., 10 seconds)
-        vTaskDelay(pdMS_TO_TICKS(HEAP_DUMP_INTERVAL_MS));
+        // Get status update from NVS so that the system has the latest configuration before the next delay
+        uint32_t status_update_interval = S_DEFAULT_STATUS_UPDATE_INTERVAL; // Replace with actual retrieval from NVS if needed
+        ESP_ERROR_CHECK(nvs_read_uint32(S_NAMESPACE, S_KEY_STATUS_UPDATE_INTERVAL, &status_update_interval));
+        ESP_LOGI(STATUS_TAG, "Next status update in %d seconds", status_update_interval/1000);
+        vTaskDelay(pdMS_TO_TICKS(status_update_interval));
     }
 }
 

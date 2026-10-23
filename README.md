@@ -220,6 +220,8 @@ Right upon initial flashing (or after flash was erased) the device will boot in 
   * `Channels count (actuators)`: number of relays (actuators) you'd like to control (or your board has)
   * `Contact sensors count`: number of contact sensors you'd like to activate  and monitor
   * `Refresh interval (ms)`: relay/sensor reading update interval. Used in WEB interface.
+* System Status:
+  * `Status update interval `: frequency of updating system status to MQTT and system / network log (if enabled)
 * Network logging parameters:
   * `Logging Type`: what logging mechaism to use.
     * `Disabled`: Default setting. No network logging is enabled.

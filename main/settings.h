@@ -51,6 +51,9 @@
 #define OTA_UPDATE_RESET_CONFIG_MIN 0
 #define OTA_UPDATE_RESET_CONFIG_MAX 1
 
+#define STATUS_UPDATE_INTERVAL_MIN  5000
+#define STATUS_UPDATE_INTERVAL_MAX  60000
+
 /**
  * General constants
  */
@@ -98,6 +101,8 @@
 #define S_KEY_STATUS_MEMGUARD_MODE          "memgrd_mode"
 #define S_KEY_STATUS_MEMGUARD_THRESHOLD     "memgrd_trshld"
 
+#define S_KEY_STATUS_UPDATE_INTERVAL     "status_upd_int"
+
 
 /**
  * Settings default values
@@ -128,6 +133,8 @@
 #define S_DEFAULT_CHANNEL_COUNT                  2
 #define S_DEFAULT_CONTACT_SENSORS_COUNT          0
 #define S_DEFAULT_RELAY_REFRESH_INTERVAL         1000       // ms
+
+#define S_DEFAULT_STATUS_UPDATE_INTERVAL     10000   // 10 seconds
 
 #define S_DEFAULT_OTA_UPDATE_URL \
     "https://dist-repo-public.s3.eu-central-1.amazonaws.com/firmware/ESPRelayBoard/" CONFIG_IDF_TARGET "/latest/ESPRelayBoard.bin"
@@ -215,6 +222,7 @@ static esp_err_t handle_setting_net_log_stdout(const char *key, const cJSON *v, 
 static esp_err_t handle_setting_memgrd_mode(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_memgrd_trshld(const char *key, const cJSON *v, setting_update_msg_t *out);
 static esp_err_t handle_setting_ota_upd_rescfg(const char *key, const cJSON *v, setting_update_msg_t *out);
+static esp_err_t handle_setting_status_upd_int(const char *key, const cJSON *v, setting_update_msg_t *out);
 
 /**
  * @brief: Setting handlers mapping table
@@ -230,6 +238,7 @@ static const setting_entry_t s_settings[] = {
     { S_KEY_MQTT_PASSWORD, NULL, MQTT_PASSWORD_LENGTH, SETTING_TYPE_STRING },
     { S_KEY_MQTT_PREFIX, NULL, MQTT_PREFIX_LENGTH, SETTING_TYPE_STRING },
     { S_KEY_HA_PREFIX, NULL, HA_PREFIX_LENGTH, SETTING_TYPE_STRING },
+    { S_KEY_STATUS_UPDATE_INTERVAL, handle_setting_status_upd_int, 0, SETTING_TYPE_UINT32 },
     { S_KEY_RELAY_REFRESH_INTERVAL, handle_setting_relay_refr_int, 0, SETTING_TYPE_UINT16 },
     { S_KEY_CHANNEL_COUNT, handle_setting_relay_ch_count, 0, SETTING_TYPE_UINT16 },
     { S_KEY_CONTACT_SENSORS_COUNT, handle_setting_relay_sn_count, 0, SETTING_TYPE_UINT16 },

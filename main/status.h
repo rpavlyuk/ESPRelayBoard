@@ -27,6 +27,7 @@ typedef struct {
     uint16_t memguard_mode;
 } device_status_t;
 
+void status_task(void *pvParameters);
 void status_init(void);
 
 void dump_all_gpio_configurations();

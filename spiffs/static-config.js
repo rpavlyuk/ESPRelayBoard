@@ -174,6 +174,9 @@ $(function () {
     // memguard
     setSelectById("memgrd_mode",     getField(data, "memgrd_mode"));
     setNumberByName("memgrd_trshld", getField(data, "memgrd_trshld"));
+
+    // System Status
+    setNumberByName("status_upd_int", getField(data, "status_upd_int"));
   }
 
   function loadAllSettings() {
