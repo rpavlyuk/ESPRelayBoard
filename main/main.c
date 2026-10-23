@@ -180,12 +180,11 @@ void app_main(void) {
         // repeate welcome message with network logging enabled
         ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id));
         ESP_ERROR_CHECK(nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial));
-        ESP_LOGI(TAG, "*** Started ESP32-based Relay Board device with network logging enabled ***");
+        ESP_LOGI(TAG, "*** Started ESP32-based Relay Board device (network logging module enabled) ***");
         ESP_LOGI(TAG, "Version: %s", DEVICE_SW_VERSION);
         ESP_LOGI(TAG, "Device ID: %s", device_id);
         ESP_LOGI(TAG, "Device Serial: %s", device_serial);
         ESP_LOGI(TAG, "Built with ESP-IDF version: %s", esp_get_idf_version());
-        ESP_LOGI(TAG, "Network logging is active now.");
 
         // Free allocated memory after usage
         free(device_id);
