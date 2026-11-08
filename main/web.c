@@ -48,18 +48,26 @@ static httpd_handle_t server = NULL;
  */
 void run_http_server(void *param) {
 
-    // wait for Wi-Fi to connect
-    ESP_LOGI(TAG, "HTTPD Server: Waiting for Wi-Fi/network to become ready...");
+    // if bit BIT_WIFI_PROVISIONING_IN_PROGRESS is set, it means Wi-Fi provisioning is in progress
+    // so proceed to start the HTTP server for provisioning
+    // otherwise -- wait for Wi-Fi to connect before starting the HTTP server
 
-    xEventGroupWaitBits(
-        g_sys_events,            // event group handle
-        BIT_WIFI_CONNECTED,      // bit(s) to wait for
-        pdFALSE,                 // don’t clear the bit when unblocked
-        pdTRUE,                  // wait until *all* bits are set (only one here)
-        portMAX_DELAY            // wait forever
-    );
+    if (xEventGroupGetBits(g_sys_events) & BIT_WIFI_PROVISIONING_IN_PROGRESS) {
+        ESP_LOGI(TAG, "Wi-Fi provisioning is in progress. Starting HTTP server for provisioning...");
+    } else {
+        // wait for Wi-Fi to connect
+        ESP_LOGI(TAG, "HTTPD Server: Waiting for Wi-Fi/network to become ready...");
 
-    ESP_LOGI(TAG, "HTTPD Server: Wi-Fi/network is ready!");
+        xEventGroupWaitBits(
+            g_sys_events,            // event group handle
+            BIT_WIFI_CONNECTED,      // bit(s) to wait for
+            pdFALSE,                 // don’t clear the bit when unblocked
+            pdTRUE,                  // wait until *all* bits are set (only one here)
+            portMAX_DELAY            // wait forever
+        );
+
+        ESP_LOGI(TAG, "HTTPD Server: Wi-Fi/network is ready!");
+    }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 #if _DEVICE_ENABLE_WEB
@@ -87,6 +95,10 @@ void run_http_server(void *param) {
     config.stack_size = 16384;
     config.recv_wait_timeout = 20;
     config.uri_match_fn = httpd_uri_match_wildcard;
+    if (xEventGroupGetBits(g_sys_events) & BIT_WIFI_PROVISIONING_IN_PROGRESS) {
+        config.server_port = 8080;  // Set alternative server port for provisioning
+        config.ctrl_port   = 32769;
+    }
 
     // Start the httpd server
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -101,9 +113,14 @@ void run_http_server(void *param) {
         httpd_uri_t root_uri = {
             .uri       = "/",
             .method    = HTTP_GET,
-            .handler   = config_get_handler,
+            .handler   = NULL,
             .user_ctx  = NULL
         };
+        if (xEventGroupGetBits(g_sys_events) & BIT_WIFI_PROVISIONING_IN_PROGRESS) {
+            root_uri.handler = wifi_provision_get_handler;  // Use provisioning handler during Wi-Fi provisioning
+        } else {
+            root_uri.handler = config_get_handler;  // Use default config handler otherwise
+        }
         err = httpd_register_uri_handler(server, &root_uri);
         ESP_LOGI(TAG, "Register %s => %s", root_uri.uri, esp_err_to_name(err));
         h_count++;

@@ -194,7 +194,10 @@ It is recommeded however to use [OTA Firmware Update](#ota-firmware-update) afte
 Right upon initial flashing (or after flash was erased) the device will boot in Wi-Fi setup mode.
 ### WiFi Setup
 * On the first boot (or after flash erase), the WiFi will start in access point mode with the SSID `PROV_AP_XXXXXX`. The exact named will be different depending on the device hardware ID (which is built in). The password is SSID name plus `1234`. For example, `PROV_AP_XXXXXX1234`
+
+You have two options to move on after that:
 * Use the *ESP SoftAP Prov* ([iOS](https://apps.apple.com/us/app/esp-softap-provisioning/id1474040630), [Android](https://play.google.com/store/apps/details?id=com.espressif.provsoftap&hl=en)) mobile app to connect to the device and configure WiFi settings. Read more [here](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/provisioning/provisioning.html#provisioning-tools) if you want to know more about the SoftAP provisioning.
+* **OR** once connected to `PROV_AP_XXXXXX` SSID, navigate to [http://192.168.4.1:8080](http://192.168.4.1:8080/) in your browser and enter the credentials on WiFi setup page. **NOTE**: The page doesn't check the validity of WiFi credentials and the connectivity, thus you may need to wipe and re-flash the device again if the Wi-Fi settings were entered incorrectly or Wi-Fi network is out of reach.
 
 ### Device Setup
 * Device will initiate itself with default settings once the WiFi was provisioned. All further configuration, including **relays / units management**, will/can be made via WEB interface.

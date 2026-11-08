@@ -231,12 +231,22 @@ void app_main(void) {
         }
 #endif
 
-    } else {
-#if _DEVICE_ENABLE_WIFI
-        ESP_LOGW(TAG, "WiFi is NOT provisioned. Provisioning process should be started and available now.");
-#else
-        ESP_LOGW(TAG, "WiFi is disabled. Device will not provide any connectivity-related functionality.");
+   } else {
+        ESP_LOGI(TAG, "WiFi is NOT provisioned!");
+        // get provisioning status bit and inform user that it is in progress (or not)
+        // if WEB provisioning is enabled, the web server will handle the provisioning process and update the status bit accordingly
+        if (xEventGroupGetBits(g_sys_events) & BIT_WIFI_PROVISIONING_IN_PROGRESS) {
+            ESP_LOGI(TAG, "Provisioning status: IN PROGRESS");
+#if _DEVICE_ENABLE_WIFI_WEB_PROVISIONING
+            ESP_LOGI(TAG, "WEB provisioning ENABLED!");
+            // start web server
+            ESP_LOGI(TAG, "WEB and/or HTTP API ENABLED!");
+
+            xTaskCreate(run_http_server, "run_http_server", 16384, NULL, 5, NULL);
 #endif
+        } else {
+            ESP_LOGI(TAG, "Provisioning status: NOT IN PROGRESS");
+        }
     }
 
 #if _DEVICE_ENABLE_STATUS
