@@ -115,3 +115,11 @@ debug.log
 
 # Exclude auto-generates version header
 main/version.h
+
+# Exclude files stored in components' spiffs directories
+spiffs/static-bootstrap.bundle.min.js
+spiffs/static-bootstrap.min.css
+spiffs/static-docsearch.min.css
+spiffs/static-jquery-4.0.0.min.js
+spiffs/static-wifi.js
+spiffs/wifi.html

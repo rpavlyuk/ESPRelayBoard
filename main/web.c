@@ -1,18 +1,20 @@
+// FreeRTOS includes
 #include "freertos/FreeRTOS.h"   // must be first
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"      // if you use queues
 
+// ESP-IDF includes
 #include <ctype.h>
 #include "esp_spiffs.h"  // Include for SPIFFS
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 
+// Standard includes
 #include "esp_http_server.h"
-#include "non_volatile_storage.h"
-#include "ca_cert_manager.h"
 #include "cJSON.h"
 
+// Project includes
 #include "flags.h"
 #include "common.h"
 #include "settings.h"
@@ -22,6 +24,15 @@
 // #include "hass.h"
 #include "mqtt.h"
 #include "wifi.h"
+
+// Component includes (must be after project includes)
+#include "web_wifi_provisioning.h"
+#include "non_volatile_storage.h"
+#include "ca_cert_manager.h"
+#include "p_utils.h"
+#include "p_web_utils.h"
+#include "web_serve_static_files.h"
+#include "web_device_authorization.h"
 
 static httpd_handle_t server = NULL;
 
@@ -52,6 +63,23 @@ void run_http_server(void *param) {
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 #if _DEVICE_ENABLE_WEB
+    static struct http_file_server_data *f_server_data = NULL;
+
+    if (f_server_data) {
+        ESP_LOGE(TAG, "File server already started");
+        vTaskDelete(NULL);
+    }
+
+    /* Allocate memory for server data */
+    f_server_data = calloc(1, sizeof(struct http_file_server_data));
+    if (!f_server_data) {
+        ESP_LOGE(TAG, "Failed to allocate memory for static file server data");
+        vTaskDelete(NULL);
+    }
+    strlcpy(f_server_data->base_path, STATIC_BASE_PATH,
+            sizeof(f_server_data->base_path));
+
+
     config.max_uri_handlers = 24;
 #else
     config.max_uri_handlers = 16;
@@ -145,6 +173,16 @@ void run_http_server(void *param) {
         ESP_LOGI(TAG, "Register %s => %s", status_uri.uri, esp_err_to_name(err));
         h_count++;
 
+        httpd_uri_t wifi_provision_page_uri = {
+            .uri       = "/wifi",
+            .method    = HTTP_GET,
+            .handler   = wifi_provision_get_handler,
+            .user_ctx  = NULL
+        };
+        err = httpd_register_uri_handler(server, &wifi_provision_page_uri);
+        ESP_LOGI(TAG, "Register %s => %s", wifi_provision_page_uri.uri, esp_err_to_name(err));
+        h_count++;
+
         httpd_uri_t ota_update_uri = {
             .uri      = "/ota-update",  // URL endpoint
             .method   = HTTP_POST,       // HTTP method
@@ -174,8 +212,8 @@ void run_http_server(void *param) {
         httpd_uri_t static_uri = {
             .uri        = "/static/*",
             .method     = HTTP_GET,
-            .handler    = static_stream_handler,
-            .user_ctx   = NULL
+            .handler    = http_static_stream_handler,
+            .user_ctx   = f_server_data
         };
 
         err = httpd_register_uri_handler(server, &static_uri);
@@ -186,6 +224,17 @@ void run_http_server(void *param) {
 #if _DEVICE_ENABLE_HTTP_API
         ESP_LOGI(TAG, "Registering HTTP API handlers...");
         /** HTTP API Handlers **/
+        // Register the Wi-Fi provisioning API handler
+        httpd_uri_t wifi_provision_uri = {
+            .uri      = "/api/wifi/provision",
+            .method   = HTTP_POST,
+            .handler  = wifi_provision_post_handler,
+            .user_ctx = NULL
+        };
+        err = httpd_register_uri_handler(server, &wifi_provision_uri);
+        ESP_LOGI(TAG, "Register %s => %s", wifi_provision_uri.uri, esp_err_to_name(err));
+        if (err == ESP_OK) h_count++;
+
         // Register the /update-relay POST handler
         httpd_uri_t update_relay_uri = {
             .uri      = "/api/relay/update",   
@@ -358,470 +407,6 @@ void assign_static_page_variables(char *html_output) {
     replace_placeholder(html_output, "{MIN_STATUS_UPDATE_INTERVAL}", f_len);
     snprintf(f_len, sizeof(f_len), "%i", STATUS_UPDATE_INTERVAL_MAX);
     replace_placeholder(html_output, "{MAX_STATUS_UPDATE_INTERVAL}", f_len);
-}
-
-/**
- * @brief: Helper function to replace placeholders in the template with actual values
- * 
- * This function replaces the placeholders in the HTML template with the actual values.
- * 
- * @param[in,out] html_output: The HTML template to modify
- * @param[in] placeholder: The placeholder to replace
- * @param[in] value: The value to insert
- * 
- * @return void No return value
- */ 
-void replace_placeholder(char *html_output, const char *placeholder, const char *value) {
-    char *pos;
-    while ((pos = strstr(html_output, placeholder)) != NULL) {
-        size_t len_placeholder = strlen(placeholder);
-        size_t len_value = strlen(value);
-        size_t len_after = strlen(pos + len_placeholder);
-
-        // Shift the rest of the string to make space for the replacement value
-        memmove(pos + len_value, pos + len_placeholder, len_after + 1);
-
-        // Copy the replacement value into the position of the placeholder
-        memcpy(pos, value, len_value);
-    }
-}
-
-/**
- * @brief Replace placeholders in a bounded (sized) buffer.
- *
- * Safer alternative to replace_placeholder(): prevents buffer overflow and
- * avoids unbounded strlen() scans past the buffer capacity.
- *
- * Behavior:
- * - Modifies @p buf in place.
- * - Replaces ALL occurrences of @p placeholder with @p value.
- * - If expansion would exceed @p cap (including final '\0'), returns ESP_ERR_NO_MEM.
- *
- * @param[in,out] buf         Buffer containing a NUL-terminated string.
- * @param[in]     cap         Total buffer capacity in bytes (including space for '\0').
- * @param[in]     placeholder Placeholder substring to replace (must be non-empty).
- * @param[in]     value       Replacement string (NULL treated as "").
- *
- * @return
- *   ESP_OK on success
- *   ESP_ERR_INVALID_ARG on bad arguments or non-terminated input within cap
- *   ESP_ERR_NO_MEM if output would exceed cap
- */
-esp_err_t replace_placeholder_sized(char *buf, size_t cap,
-                                   const char *placeholder,
-                                   const char *value) {
-    if (!buf || cap == 0 || !placeholder) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (!value) {
-        value = "";
-    }
-
-    const size_t ph_len = strlen(placeholder);
-    const size_t val_len = strlen(value);
-
-    if (ph_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    // Ensure buf is NUL-terminated within cap
-    size_t cur_len = strnlen(buf, cap);
-    if (cur_len >= cap) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    // Search from the beginning each time, but always bounded by cap via strnlen checks
-    char *pos = buf;
-
-    while (true) {
-        // strstr() is fine as long as buf is terminated within cap (checked above)
-        pos = strstr(pos, placeholder);
-        if (!pos) {
-            break;
-        }
-
-        // Re-evaluate current length (still bounded)
-        cur_len = strnlen(buf, cap);
-        if (cur_len >= cap) {
-            return ESP_ERR_INVALID_ARG;
-        }
-
-        const size_t head_off = (size_t)(pos - buf);
-
-        // Sanity: placeholder must fully reside within the current string
-        if (head_off + ph_len > cur_len) {
-            return ESP_ERR_INVALID_ARG;
-        }
-
-        // Tail length after the placeholder (bytes after it, not including '\0')
-        const size_t tail_len = cur_len - (head_off + ph_len);
-
-        // New length after replacement
-        const size_t new_len = cur_len - ph_len + val_len;
-
-        // Need space for '\0' too
-        if (new_len >= cap) {
-            return ESP_ERR_NO_MEM;
-        }
-
-        // Move tail (including '\0') to its new position
-        memmove(buf + head_off + val_len,
-                buf + head_off + ph_len,
-                tail_len + 1);
-
-        // Copy in replacement value
-        if (val_len > 0) {
-            memcpy(buf + head_off, value, val_len);
-        }
-
-        // Continue searching *after* the inserted value to avoid infinite loops
-        pos = buf + head_off + val_len;
-    }
-
-    return ESP_OK;
-}
-
-
-/**
- * @brief: Helper function to truncate a string after the last occurrence of a substring
- * 
- * This function truncates a string after the last occurrence of a substring.
- * 
- * @param[in,out] str: The string to truncate
- * @param[in] lookup: The substring to search for
- * 
- * @return void No return value
- */
-void str_trunc_after(char *str, const char *lookup) {
-    if (str == NULL || lookup == NULL) {
-        return; // Return if either input is NULL
-    }
-
-    char *last_occurrence = NULL;
-    char *current_position = str;
-
-    // Find the last occurrence of the substring 'lookup' in 'str'
-    while ((current_position = strstr(current_position, lookup)) != NULL) {
-        last_occurrence = current_position;
-        current_position += strlen(lookup); // Move past the current match
-    }
-
-    // If the 'lookup' substring was found, truncate the string after its last occurrence
-    if (last_occurrence != NULL) {
-        last_occurrence[strlen(lookup)] = '\0'; // Null-terminate after the last occurrence
-    }
-}
-
-/**
- * @file web.c
- * @brief: Helper function to convert a hexadecimal character to its decimal value
- * 
- * This function takes a single hexadecimal character and converts it to its decimal value.
- * It supports both uppercase and lowercase hexadecimal characters.
- * 
- * @param[in] c: The hexadecimal character to convert
- * 
- * @return int: The decimal value of the hexadecimal character, or -1 if the input is not a valid hexadecimal character
- */
-int hex_to_dec(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
-
-/**
- * @file web.c
- * @brief URL decoding function
- * 
- * This file contains the implementation of the URL decoding function.
- * 
- */
-void url_decode(char *src) {
-    char *dst = src;
-    while (*src) {
-        if (*src == '%' && src[1] && src[2]) {
-            // Convert hex to character
-            *dst = (char)((hex_to_dec(src[1]) << 4) | hex_to_dec(src[2]));
-            src += 2;
-        } else if (*src == '+') {
-            // Replace '+' with space
-            *dst = ' ';
-        } else {
-            *dst = *src;
-        }
-        src++;
-        dst++;
-    }
-    *dst = '\0'; // Null-terminate the decoded string
-}
-
-/**
- * @brief Extracts the value of a specified parameter from a buffer (POST request).
- *
- * This function searches for a parameter name within a given buffer and extracts its corresponding value.
- * The extracted value is then stored in the provided output buffer.
- *
- * @param buf The buffer containing the parameters.
- * @param param_name The name of the parameter to search for.
- * @param output The buffer where the extracted parameter value will be stored.
- * @param output_size The size of the output buffer.
- * @return An integer providing the length of the extracted value, or 0 if the parameter is not found.
- */
-int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size) {
-    char *start = strstr(buf, param_name);
-    if (start != NULL) {
-        start += strlen(param_name);  // Move to the value part
-        char *end = strchr(start, '&');  // Find the next '&'
-        if (end == NULL) {
-            end = start + strlen(start);  // If no '&' found, take till the end of the string
-        }
-        size_t len = end - start;
-        if (len >= output_size) {
-            len = output_size - 1;  // Ensure we don't overflow the output buffer
-        }
-        strncpy(output, start, len);
-        output[len] = '\0';  // Null-terminate the result
-        return len;  // Return the length of the extracted value
-    } else {
-        output[0] = '\0';  // If not found, return an empty string
-        return 0;  // Return 0 length when not found
-    }
-}
-
-/**
- * @brief Retrieves the value of a GET query parameter from an HTTP request.
- *
- * This function extracts the value of a specified query parameter from the URL of an HTTP request.
- * It allocates memory for the query string, retrieves it, and then searches for the specified parameter.
- * The extracted value is stored in the provided output buffer.
- *
- * @param req Pointer to the HTTP request structure.
- * @param name The name of the query parameter to retrieve.
- * @param out Buffer where the extracted parameter value will be stored.
- * @param out_sz Size of the output buffer.
- * @return ESP_OK if the parameter is found and extracted successfully,
- *         ESP_ERR_NOT_FOUND if the parameter is not found,
- *         ESP_ERR_INVALID_ARG if any argument is invalid,
- *         ESP_ERR_NO_MEM if memory allocation fails.
- */
-static esp_err_t extract_param_value_from_get_query(httpd_req_t *req,
-                                     const char *name,
-                                     char *out,
-                                     size_t out_sz)
-{
-    if (!req || !name || !out || out_sz == 0) return ESP_ERR_INVALID_ARG;
-
-    out[0] = '\0';
-
-    size_t qlen = httpd_req_get_url_query_len(req);
-    if (qlen == 0) return ESP_ERR_NOT_FOUND;
-
-    char *q = malloc(qlen + 1);
-    if (!q) return ESP_ERR_NO_MEM;
-
-    esp_err_t err = httpd_req_get_url_query_str(req, q, qlen + 1);
-    if (err != ESP_OK) {
-        free(q);
-        return err;
-    }
-
-    err = httpd_query_key_value(q, name, out, out_sz);
-    free(q);
-
-    return err; // ESP_OK or ESP_ERR_NOT_FOUND
-}
-
-/**
- * @brief Determines the content type based on the file extension.
- *
- * This function takes a file path as input and returns the corresponding
- * MIME content type based on the file extension. If the extension is not
- * recognized, it defaults to "application/octet-stream".
- *
- * @param path The file path to analyze.
- * @return The corresponding content type as a string.
- */
-static const char *content_type_from_ext(const char *path) {
-    const char *dot = strrchr(path, '.');
-    if (!dot) return "application/octet-stream";
-
-    if (strcasecmp(dot, ".html") == 0) return "text/html";
-    if (strcasecmp(dot, ".css")  == 0) return "text/css";
-    if (strcasecmp(dot, ".js")   == 0) return "application/javascript";
-    if (strcasecmp(dot, ".json") == 0) return "application/json";
-    if (strcasecmp(dot, ".svg")  == 0) return "image/svg+xml";
-    if (strcasecmp(dot, ".png")  == 0) return "image/png";
-    if (strcasecmp(dot, ".jpg")  == 0 || strcasecmp(dot, ".jpeg") == 0) return "image/jpeg";
-    if (strcasecmp(dot, ".ico")  == 0) return "image/x-icon";
-    if (strcasecmp(dot, ".txt")  == 0) return "text/plain";
-
-    return "application/octet-stream";
-}
-
-/**
- * @brief Validates device identity from HTTP request query parameters.
- *
- * This function extracts the 'device_id' and 'device_serial' parameters from the HTTP request's query string
- * and compares them with the values stored in NVS (Non-Volatile Storage). If the values match, the function
- * returns ESP_OK; otherwise, it sends an appropriate HTTP error response and returns ESP_FAIL.
- *
- * @param req Pointer to the HTTP request structure.
- * @return ESP_OK if the device identity is valid, ESP_FAIL otherwise.
- */
-static esp_err_t validate_device_identity_from_get_query(httpd_req_t *req)
-{
-    char device_id_in[DEVICE_ID_LENGTH + 1];
-    char device_serial_in[DEVICE_SERIAL_LENGTH + 1];
-
-    esp_err_t err;
-
-    err = extract_param_value_from_get_query(req, "device_id", device_id_in, sizeof(device_id_in));
-    if (err != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing device_id");
-        return ESP_FAIL;
-    }
-
-    err = extract_param_value_from_get_query(req, "device_serial", device_serial_in, sizeof(device_serial_in));
-    if (err != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing device_serial");
-        return ESP_FAIL;
-    }
-
-    char *device_id_nvs = NULL;
-    char *device_serial_nvs = NULL;
-
-    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id_nvs);
-    if (err != ESP_OK || !device_id_nvs) {
-        free(device_id_nvs);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_id from NVS");
-        return ESP_FAIL;
-    }
-
-    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs);
-    if (err != ESP_OK || !device_serial_nvs) {
-        free(device_id_nvs);
-        free(device_serial_nvs);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_serial from NVS");
-        return ESP_FAIL;
-    }
-
-    bool ok = (strcmp(device_id_in, device_id_nvs) == 0) &&
-              (strcmp(device_serial_in, device_serial_nvs) == 0);
-
-    free(device_id_nvs);
-    free(device_serial_nvs);
-
-    if (!ok) {
-        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "Device ID or serial mismatch");
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
-
-
-/**
- * @brief Validates device identity from a cJSON object.
- *
- * This function extracts the 'device_id' and 'device_serial' fields from the provided cJSON object
- * and compares them with the values stored in NVS (Non-Volatile Storage). If the values match, the function
- * returns ESP_OK; otherwise, it returns ESP_FAIL.
- *
- * @param json Pointer to the cJSON object containing device identity fields.
- * @return ESP_OK if the device identity is valid, ESP_FAIL otherwise.
- */
-static esp_err_t validate_device_identity_from_json(const cJSON *json) {
-    if (!json) return ESP_FAIL;
-
-    const cJSON *device_id_in = cJSON_GetObjectItemCaseSensitive(json, "device_id");
-    const cJSON *device_serial_in = cJSON_GetObjectItemCaseSensitive(json, "device_serial");
-
-    if (!cJSON_IsString(device_id_in) || (device_id_in->valuestring == NULL)) {
-        return ESP_FAIL;
-    }
-
-    if (!cJSON_IsString(device_serial_in) || (device_serial_in->valuestring == NULL)) {
-        return ESP_FAIL;
-    }
-
-    char *device_id_nvs = NULL;
-    char *device_serial_nvs = NULL;
-
-    esp_err_t err;
-
-    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id_nvs);
-    if (err != ESP_OK || !device_id_nvs) {
-        free(device_id_nvs);
-        return ESP_FAIL;
-    }
-
-    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial_nvs);
-    if (err != ESP_OK || !device_serial_nvs) {
-        free(device_id_nvs);
-        free(device_serial_nvs);
-        return ESP_FAIL;
-    }
-
-    bool ok = (strcmp(device_id_in->valuestring, device_id_nvs) == 0) &&
-              (strcmp(device_serial_in->valuestring, device_serial_nvs) == 0);
-
-    free(device_id_nvs);
-    free(device_serial_nvs);
-
-    if (!ok) {
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
-
-/**
- * @brief Converts a cJSON value to its string representation.
- *
- * This function takes a cJSON value and converts it to a string representation.
- * The resulting string is stored in the provided output buffer.
- *
- * @param v Pointer to the cJSON value to convert.
- * @param out Output buffer where the string representation will be stored.
- * @param out_sz Size of the output buffer.
- */
-static void json_value_to_string(const cJSON *v, char *out, size_t out_sz)
-{
-    if (!out || out_sz == 0) return;
-    out[0] = '\0';
-
-    if (!v) {
-        strlcpy(out, "<null>", out_sz);
-        return;
-    }
-
-    if (cJSON_IsString(v)) {
-        strlcpy(out, v->valuestring ? v->valuestring : "", out_sz);
-    } else if (cJSON_IsNumber(v)) {
-        // cJSON numbers are double internally; valueint is OK for ints
-        // Use integer formatting if it looks integer-ish
-        double d = v->valuedouble;
-        if ((double)((int64_t)d) == d) {
-            snprintf(out, out_sz, "%lld", (long long)((int64_t)d));
-        } else {
-            snprintf(out, out_sz, "%.6f", d);
-        }
-    } else if (cJSON_IsBool(v)) {
-        strlcpy(out, cJSON_IsTrue(v) ? "true" : "false", out_sz);
-    } else if (cJSON_IsNull(v)) {
-        strlcpy(out, "null", out_sz);
-    } else {
-        // object/array/blob-ish: store compact JSON
-        char *tmp = cJSON_PrintUnformatted((cJSON *)v);
-        if (tmp) {
-            strlcpy(out, tmp, out_sz);
-            free(tmp);
-        } else {
-            strlcpy(out, "<unprintable>", out_sz);
-        }
-    }
 }
 
 
@@ -2963,192 +2548,6 @@ static esp_err_t get_ca_certificate_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-/**
- * @brief HTTP handler to stream /static/<name> as /spiffs/static-<name> (SPIFFS has no dirs)
- * This handler streams static files from SPIFFS with on-the-fly placeholder replacement.
- *
- * Example:
- *   GET /static/script.js  ->  /spiffs/static-script.js
- *
- * Notes:
- * - Uses line-by-line streaming with placeholder replacement.
- * - For placeholders that might span lines, you'll need a real streaming placeholder engine.
- * - Adjust STREAM_READ_LINE_SZ and STREAM_LINE_BUF_SZ as needed.
- * 
- * @param req HTTP request
- * @return ESP_OK or ESP_FAIL
- */
-static esp_err_t static_stream_handler(httpd_req_t *req) {
-    // Basic URI validation
-    const char *uri = req->uri;                 // e.g. "/static/script.js"
-    const char *prefix = "/static/";
-    const size_t prefix_len = strlen(prefix);
-
-    ESP_LOGI(TAG, "Static file request: %s", uri);
-
-    if (strncmp(uri, prefix, prefix_len) != 0 || uri[prefix_len] == '\0') {
-        ESP_LOGW(TAG, "Invalid static file request: %s", uri);
-        httpd_resp_send_404(req);
-        return ESP_OK;
-    }
-
-    // Disallow parent traversal and weird paths
-    // (we don't support subdirs anyway; map "a/b.js" -> "a-b.js")
-    char mapped_name[128] = {0};
-    {
-        const char *name = uri + prefix_len;    // "script.js" or "dir/file.js"
-        size_t j = 0;
-
-        for (size_t i = 0; name[i] != '\0' && j < sizeof(mapped_name) - 1; i++) {
-            char c = name[i];
-
-            // Reject obvious traversal
-            if (c == '.' && name[i + 1] == '.') {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid path");
-                return ESP_OK;
-            }
-
-            // SPIFFS mapping: replace '/' with '-' (SPIFFS has no dirs)
-            if (c == '/') c = '-';
-
-            // Keep it conservative: allow alnum and a few safe symbols
-            if (!(isalnum((unsigned char)c) || c=='-' || c=='_' || c=='.')) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid characters in path");
-                return ESP_OK;
-            }
-
-            mapped_name[j++] = c;
-        }
-
-        mapped_name[j] = '\0';
-
-        if (mapped_name[0] == '\0') {
-            httpd_resp_send_404(req);
-            return ESP_OK;
-        }
-    }
-
-    // Build actual SPIFFS path: /spiffs/static-<mapped_name>
-    char filepath[192];
-    snprintf(filepath, sizeof(filepath), "%s%s", STATIC_PATH_PREFIX, mapped_name);
-
-    FILE *f = fopen(filepath, "r");
-    if (!f) {
-        ESP_LOGW(TAG, "File not found: %s (uri=%s)", filepath, uri);
-        httpd_resp_send_404(req);
-        return ESP_OK;
-    }
-
-    // Set content type based on requested URI extension (not SPIFFS name)
-    httpd_resp_set_type(req, content_type_from_ext(uri));
-#if ENABLE_STATIC_NOCACHE_HEADER
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-#else
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600"); // optional
-#endif
-
-    // Buffers
-    char *read_line = (char *)malloc(STREAM_READ_LINE_SZ);
-    char *work_line = (char *)malloc(STREAM_LINE_BUF_SZ);
-    if (!read_line || !work_line) {
-        fclose(f);
-        free(read_line);
-        free(work_line);
-        httpd_resp_send_500(req);
-        return ESP_OK;
-    }
-
-#if ENABLE_PLACEHOLDER_REPLACEMENT
-    // NOTE: If you want these per-request, extract them from query params.
-    // For now, keep placeholders consistent with the rest of your templating model.
-    char *device_id = NULL;
-    char *device_serial = NULL;
-
-    esp_err_t err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_ID, &device_id);
-    if (err != ESP_OK || !device_id) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_id from NVS");
-        return ESP_FAIL;
-    }
-
-    err = nvs_read_string(S_NAMESPACE, S_KEY_DEVICE_SERIAL, &device_serial);
-    if (err != ESP_OK || !device_serial) {
-        free(device_id);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read device_serial from NVS");
-        return ESP_FAIL;
-    }
- #endif
-
-    while (fgets(read_line, STREAM_READ_LINE_SZ, f) != NULL) {
-        // If the line is longer than STREAM_READ_LINE_SZ-1, fgets returns a partial line
-        // (no '\n' and not EOF). This approach cannot safely template such lines.
-        size_t rl = strlen(read_line);
-        if (rl == STREAM_READ_LINE_SZ - 1 && read_line[rl - 1] != '\n' && !feof(f)) {
-            ESP_LOGE(TAG,
-                     "Line too long in %s; increase STREAM_READ_LINE_SZ/STREAM_LINE_BUF_SZ "
-                     "or avoid templating large/minified assets",
-                     filepath);
-            fclose(f);
-            free(read_line);
-            free(work_line);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template line too long");
-            return ESP_OK;
-        }
-
-        // Copy into a larger working buffer to give replacements room to expand
-        strlcpy(work_line, read_line, STREAM_LINE_BUF_SZ);
-
-#if ENABLE_PLACEHOLDER_REPLACEMENT
-        // Replace placeholders safely (bounded)
-        esp_err_t r;
-
-        r = replace_placeholder_sized(work_line, STREAM_LINE_BUF_SZ,
-                                      "{VAL_DEVICE_ID}", device_id);
-        if (r != ESP_OK) {
-            ESP_LOGE(TAG, "Template expansion overflow in %s (device_id): %s",
-                     filepath, esp_err_to_name(r));
-            fclose(f);
-            free(read_line);
-            free(work_line);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template expansion overflow");
-            return ESP_OK;
-        }
-
-        r = replace_placeholder_sized(work_line, STREAM_LINE_BUF_SZ,
-                                      "{VAL_DEVICE_SERIAL}", device_serial);
-        if (r != ESP_OK) {
-            ESP_LOGE(TAG, "Template expansion overflow in %s (device_serial): %s",
-                     filepath, esp_err_to_name(r));
-            fclose(f);
-            free(read_line);
-            free(work_line);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "template expansion overflow");
-            return ESP_OK;
-        }
-#endif
-        // Stream it out
-        esp_err_t err = httpd_resp_send_chunk(req, work_line, HTTPD_RESP_USE_STRLEN);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "send_chunk failed (err=0x%x)", (unsigned)err);
-            break;
-        }
-
-        // Optional: yield a tick if you ever template larger pages to avoid WDT starvation
-        // vTaskDelay(1);
-    }
-
-    fclose(f);
-    free(read_line);
-    free(work_line);
-
-#if ENABLE_PLACEHOLDER_REPLACEMENT
-    free(device_id);
-    free(device_serial);
-#endif
-
-    // End chunked response
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-}
 
 /**
  * @brief Handler for /api/control endpoint. The API endpoint to control device processes.

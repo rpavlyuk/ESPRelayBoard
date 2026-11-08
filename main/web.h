@@ -17,6 +17,9 @@
 #define ENABLE_STATIC_NOCACHE_HEADER   true  // set to true to add no-cache headers to static file responses
 #define ENABLE_CONFIG_PLACEHOLDER_REPLACEMENT false  // set to true to enable placeholder replacement in config.html
 
+#define STATIC_BASE_PATH        "/spiffs"  // Base path for SPIFFS file system
+#define SCRATCH_BUFSIZE  8192
+
 #define WEB_ENABLE_REBOOT_ON_OUT_OF_MEMORY  true  // set to true to enable automatic reboot on out-of-memory situations
 #define WEB_ON_OUT_OF_MEMORY_FUNCTION       abort  // Function to call when out of memory. Options: esp_restart, abort, or custom function.      
 
@@ -34,7 +37,6 @@ static esp_err_t relays_get_handler(httpd_req_t *req);
 static esp_err_t ca_cert_post_handler(httpd_req_t *req);
 static esp_err_t ota_post_handler(httpd_req_t *req);
 static esp_err_t reset_post_handler(httpd_req_t *req);
-static esp_err_t static_stream_handler(httpd_req_t *req);
 
 // API Handlers
 static esp_err_t status_data_handler(httpd_req_t *req);
@@ -48,22 +50,5 @@ static esp_err_t api_control_handler(httpd_req_t *req);
 
 
 void assign_static_page_variables(char *html_output);
-void replace_placeholder(char *html_output, const char *placeholder, const char *value);
-esp_err_t replace_placeholder_sized(char *buf, size_t cap,
-                                   const char *placeholder,
-                                   const char *value);
-int extract_param_value(const char *buf, const char *param_name, char *output, size_t output_size);
-static esp_err_t extract_param_value_from_get_query(httpd_req_t *req, const char *param_name, char *output, size_t output_size);
-static esp_err_t validate_device_identity_from_get_query(httpd_req_t *req);
-static esp_err_t validate_device_identity_from_json(const cJSON *json);
-
-static void json_value_to_string(const cJSON *v, char *out, size_t out_sz);
-
-int hex_to_dec(char c);
-void url_decode(char *str);
-void str_trunc_after(char *str, const char *lookup);
-static const char *content_type_from_ext(const char *path);
-
-
 
 #endif
