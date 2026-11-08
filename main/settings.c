@@ -890,7 +890,7 @@ void init_filesystem() {
         .base_path = "/spiffs",
         .partition_label = NULL,
         .max_files = 5,
-        .format_if_mount_failed = true
+        .format_if_mount_failed = false
     };
 
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
@@ -1017,223 +1017,341 @@ esp_err_t generate_storage_update_url(const char *firmware_url, char **storage_u
  * @param url The URL of the storage partition image to download.
  * @return ESP_OK if the SPIFFS partition was updated successfully, or an error code otherwise.
  */
+
 esp_err_t download_and_update_spiffs_partition(const char *url)
 {
-    ESP_LOGI(OTA_TAG, "Starting OTA storage update from URL: %s", url);
-
-    esp_partition_t *spiffs_partition = NULL;
-    esp_partition_iterator_t it = esp_partition_find(
-        ESP_PARTITION_TYPE_DATA,
-        ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
-        NULL
-    );
-
-    if (it == NULL) {
-        ESP_LOGE(OTA_TAG, "SPIFFS partition not found");
-        return ESP_FAIL;
+    if (url == NULL || url[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    spiffs_partition = (esp_partition_t *)esp_partition_get(it);
-    if (spiffs_partition == NULL) {
-        ESP_LOGE(OTA_TAG, "Failed to get SPIFFS partition");
-        esp_partition_iterator_release(it);
-        return ESP_FAIL;
-    }
+    ESP_LOGI(OTA_TAG, "Starting OTA storage update: %s", url);
 
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition type = %d", spiffs_partition->type);
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition subtype = %d", spiffs_partition->subtype);
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition starting address = 0x%lx", spiffs_partition->address);
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition size = %li", spiffs_partition->size);
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition label = %s", spiffs_partition->label);
-    ESP_LOGI(OTA_TAG, "SPIFFS: partition encrypted = %d", spiffs_partition->encrypted);
-
-    esp_partition_iterator_release(it);
-
+    esp_err_t ret = ESP_FAIL;
+    esp_http_client_handle_t client = NULL;
     char *ca_cert = NULL;
-    if (load_ca_certificate(&ca_cert, CA_CERT_PATH_HTTPS) != ESP_OK) {
-        ESP_LOGW(OTA_TAG, "Failed to load CA certificate. Proceeding without it.");
+
+    bool was_mounted = false;
+    bool unmounted = false;
+    bool flash_touched = false;
+
+    size_t offset = 0;
+    int data_read = 0;
+
+    // Find the actual storage partition on this device.
+    const esp_partition_t *spiffs_partition =
+        esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA,
+            ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+            "storage"
+        );
+
+    if (spiffs_partition == NULL) {
+        ESP_LOGE(OTA_TAG, "SPIFFS partition not found");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(OTA_TAG,
+             "SPIFFS: address=0x%lx, size=%lu bytes",
+             (unsigned long)spiffs_partition->address,
+             (unsigned long)spiffs_partition->size);
+
+    // Safe remount configuration.
+    // Never automatically format after an OTA update.
+    esp_vfs_spiffs_conf_t spiffs_conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = false
+    };
+
+    // Load CA certificate while SPIFFS is still mounted.
+    if (load_ca_certificate(&ca_cert, CA_CERT_PATH_HTTPS)
+            != ESP_OK) {
+        ESP_LOGW(OTA_TAG,
+                 "Failed to load CA certificate");
+        // Preserve existing certificate fallback behavior.
     }
 
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_GET,
         .timeout_ms = 5000,
-        .cert_pem = ca_cert,
+        .cert_pem = ca_cert
     };
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
+    /*
+     * STEP 1: HEAD request
+     */
+    client = esp_http_client_init(&config);
     if (client == NULL) {
-        ESP_LOGE(OTA_TAG, "Failed to initialize HTTP client");
-        free(ca_cert);
-        return ESP_FAIL;
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
     }
 
-    /*
-     * Step 1: HEAD request to verify the object exists
-     */
     esp_http_client_set_method(client, HTTP_METHOD_HEAD);
 
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(OTA_TAG, "Failed to open HEAD HTTP connection: %s", esp_err_to_name(err));
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return err;
+    ret = esp_http_client_open(client, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(OTA_TAG, "HEAD connection failed: %s",
+                 esp_err_to_name(ret));
+        goto cleanup;
     }
-    ESP_LOGI(OTA_TAG, "SPIFFS OTA: HEAD HTTP connection opened successfully");
 
-    int64_t head_len = esp_http_client_fetch_headers(client);
-    if (head_len < 0) {
-        ESP_LOGE(OTA_TAG, "Failed to fetch HEAD HTTP headers");
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
-    }
-    ESP_LOGI(OTA_TAG, "SPIFFS OTA: HEAD HTTP headers fetched successfully");
+    int64_t head_length = esp_http_client_fetch_headers(client);
 
-    if (esp_http_client_get_status_code(client) != 200) {
-        ESP_LOGE(OTA_TAG, "File not found at URL: %s, HTTP status=%d",
-                 url, esp_http_client_get_status_code(client));
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
+    if (head_length < 0 ||
+        esp_http_client_get_status_code(client) != 200) {
+        ESP_LOGE(OTA_TAG, "HEAD request failed");
+        ret = ESP_FAIL;
+        goto cleanup;
     }
-    ESP_LOGI(OTA_TAG, "SPIFFS OTA: File found at URL: %s", url);
+
+    // Optional early rejection when HEAD supplies a size.
+    if (head_length > 0 &&
+        (uint64_t)head_length != spiffs_partition->size) {
+
+        ESP_LOGE(OTA_TAG,
+                 "SPIFFS image size mismatch (HEAD): "
+                 "image=%lld, partition=%lu",
+                 (long long)head_length,
+                 (unsigned long)spiffs_partition->size);
+
+        ret = ESP_ERR_INVALID_SIZE;
+        goto cleanup;
+    }
 
     esp_http_client_cleanup(client);
     client = NULL;
 
     /*
-     * Step 2: GET request to download the file
+     * STEP 2: GET request
      */
     client = esp_http_client_init(&config);
     if (client == NULL) {
-        ESP_LOGE(OTA_TAG, "Failed to reinitialize HTTP client");
-        free(ca_cert);
-        return ESP_FAIL;
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
     }
 
     esp_http_client_set_method(client, HTTP_METHOD_GET);
 
-    err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(OTA_TAG, "Failed to open GET HTTP connection: %s", esp_err_to_name(err));
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return err;
-    }
-    ESP_LOGI(OTA_TAG, "SPIFFS OTA: GET HTTP connection opened successfully");
-
-    int64_t content_length = esp_http_client_fetch_headers(client);
-    if (content_length < 0) {
-        ESP_LOGE(OTA_TAG, "Failed to fetch GET HTTP headers");
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
+    ret = esp_http_client_open(client, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(OTA_TAG, "GET connection failed: %s",
+                 esp_err_to_name(ret));
+        goto cleanup;
     }
 
-    if (esp_http_client_get_status_code(client) != 200) {
-        ESP_LOGE(OTA_TAG, "GET failed for URL: %s, HTTP status=%d",
-                 url, esp_http_client_get_status_code(client));
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
-    }
+    int64_t content_length =
+        esp_http_client_fetch_headers(client);
 
-    ESP_LOGI(OTA_TAG, "SPIFFS OTA: GET headers fetched successfully, content_length=%lld",
-             content_length);
-
-    if (content_length <= 0) {
-        ESP_LOGE(OTA_TAG, "Invalid content length: %lld", content_length);
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
+    if (content_length < 0 ||
+        esp_http_client_get_status_code(client) != 200) {
+        ESP_LOGE(OTA_TAG, "GET request failed");
+        ret = ESP_FAIL;
+        goto cleanup;
     }
 
     /*
-     * Step 3: Read first chunk BEFORE erasing partition
+     * STEP 3: Validate image size BEFORE touching flash.
+     *
+     * Full SPIFFS images must match the partition size.
      */
-    int data_read = esp_http_client_read(client, ota_write_data, BUFFSIZE);
-    if (data_read < 0) {
-        ESP_LOGE(OTA_TAG, "Error reading first chunk from HTTP stream");
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
+    if (content_length <= 0 ||
+        (uint64_t)content_length != spiffs_partition->size) {
+
+        ESP_LOGE(OTA_TAG,
+                 "SPIFFS image size mismatch: "
+                 "image=%lld, partition=%lu",
+                 (long long)content_length,
+                 (unsigned long)spiffs_partition->size);
+
+        ret = ESP_ERR_INVALID_SIZE;
+        goto cleanup;
     }
 
-    if (data_read == 0) {
-        ESP_LOGE(OTA_TAG, "HTTP stream returned 0 bytes, aborting before erasing SPIFFS");
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return ESP_FAIL;
+    ESP_LOGI(OTA_TAG,
+             "SPIFFS image size verified: %lld bytes",
+             (long long)content_length);
+
+    /*
+     * STEP 4: Read the first chunk before erasing.
+     */
+    data_read = esp_http_client_read(
+        client, ota_write_data, BUFFSIZE);
+
+    if (data_read <= 0) {
+        ESP_LOGE(OTA_TAG,
+                 "Failed to read first image chunk: %d",
+                 data_read);
+        ret = ESP_FAIL;
+        goto cleanup;
     }
 
     /*
-     * Step 4: Erase only after we know we really have data
+     * STEP 5: Unmount SPIFFS before raw flash access.
+     *
+     * All other SPIFFS users must be stopped beforehand.
      */
-    err = esp_partition_erase_range(spiffs_partition, 0, spiffs_partition->size);
-    if (err != ESP_OK) {
-        ESP_LOGE(OTA_TAG, "Failed to erase SPIFFS partition: %s", esp_err_to_name(err));
-        free(ca_cert);
-        esp_http_client_cleanup(client);
-        return err;
+    was_mounted = esp_spiffs_mounted(NULL);
+
+    if (was_mounted) {
+        ESP_LOGI(OTA_TAG, "Unmounting SPIFFS");
+
+        ret = esp_vfs_spiffs_unregister(NULL);
+        if (ret != ESP_OK) {
+            ESP_LOGE(OTA_TAG,
+                     "SPIFFS unmount failed: %s",
+                     esp_err_to_name(ret));
+            goto cleanup;
+        }
+
+        unmounted = true;
     }
-    ESP_LOGI(OTA_TAG, "SPIFFS partition erased successfully");
 
     /*
-     * Step 5: Write first chunk and continue streaming
+     * STEP 6: Erase the partition.
+     *
+     * From this point onward, failures may leave SPIFFS
+     * unusable. Do not automatically remount on failure.
      */
-    int binary_file_length = 0;
-    int offset = 0;
+    flash_touched = true;
 
-    ESP_LOGI(OTA_TAG, "Writing to SPIFFS partition:");
+    ret = esp_partition_erase_range(
+        spiffs_partition, 0, spiffs_partition->size);
 
-    while (1) {
-        if (data_read > 0) {
-            err = esp_partition_write(spiffs_partition, offset, ota_write_data, data_read);
-            if (err != ESP_OK) {
-                ESP_LOGE(OTA_TAG, "Failed to write SPIFFS partition: %s", esp_err_to_name(err));
-                free(ca_cert);
-                esp_http_client_cleanup(client);
-                return err;
-            }
+    if (ret != ESP_OK) {
+        ESP_LOGE(OTA_TAG,
+                 "SPIFFS erase failed: %s",
+                 esp_err_to_name(ret));
+        goto cleanup;
+    }
 
-            offset += data_read;
-            binary_file_length += data_read;
-            printf(".");
-        } else if (data_read == 0) {
-            printf("DONE\n");
-            ESP_LOGI(OTA_TAG, "Connection closed, all data received");
+    ESP_LOGI(OTA_TAG, "SPIFFS partition erased");
+
+    /*
+     * STEP 7: Stream the image into flash.
+     */
+    offset = 0;
+
+    while (offset < spiffs_partition->size) {
+
+        // Detect premature end of stream or read errors.
+        if (data_read <= 0) {
+            ESP_LOGE(OTA_TAG,
+                     "Incomplete SPIFFS image at offset %zu",
+                     offset);
+            ret = ESP_FAIL;
+            goto cleanup;
+        }
+
+        // Prevent writing beyond the partition boundary.
+        if ((size_t)data_read >
+            spiffs_partition->size - offset) {
+
+            ESP_LOGE(OTA_TAG,
+                     "SPIFFS write exceeds partition boundary");
+            ret = ESP_ERR_INVALID_SIZE;
+            goto cleanup;
+        }
+
+        ret = esp_partition_write(
+            spiffs_partition,
+            offset,
+            ota_write_data,
+            (size_t)data_read
+        );
+
+        if (ret != ESP_OK) {
+            ESP_LOGE(OTA_TAG,
+                     "SPIFFS write failed at %zu: %s",
+                     offset, esp_err_to_name(ret));
+            goto cleanup;
+        }
+
+        offset += (size_t)data_read;
+
+        // Entire expected image has been written.
+        if (offset == spiffs_partition->size) {
             break;
         }
 
-        data_read = esp_http_client_read(client, ota_write_data, BUFFSIZE);
-        if (data_read < 0) {
-            ESP_LOGE(OTA_TAG, "Error: SSL/HTTP data read error");
-            free(ca_cert);
-            esp_http_client_cleanup(client);
-            return ESP_FAIL;
+        // Never request more than the remaining space.
+        size_t remaining = spiffs_partition->size - offset;
+        int read_size = remaining < BUFFSIZE
+                      ? (int)remaining
+                      : BUFFSIZE;
+
+        data_read = esp_http_client_read(
+            client, ota_write_data, read_size);
+    }
+
+    /*
+     * STEP 8: Verify complete HTTP transfer.
+     */
+    if (offset != spiffs_partition->size ||
+        !esp_http_client_is_complete_data_received(client)) {
+
+        ESP_LOGE(OTA_TAG,
+                 "Incomplete SPIFFS transfer: wrote %zu/%lu",
+                 offset,
+                 (unsigned long)spiffs_partition->size);
+
+        ret = ESP_FAIL;
+        goto cleanup;
+    }
+
+    ESP_LOGI(OTA_TAG,
+             "SPIFFS image written successfully: %zu bytes",
+             offset);
+
+    ret = ESP_OK;
+
+cleanup:
+    /*
+     * STEP 9: Release HTTP and certificate resources.
+     */
+    if (client != NULL) {
+        esp_http_client_cleanup(client);
+    }
+
+    free(ca_cert);
+
+    /*
+     * STEP 10: Restore SPIFFS if safe.
+     *
+     * Remount after a complete update, or if nothing
+     * was erased/written. Never format automatically.
+     */
+    if (unmounted) {
+
+        if (ret == ESP_OK || !flash_touched) {
+
+            ESP_LOGI(OTA_TAG, "Remounting SPIFFS");
+
+            esp_err_t mount_ret =
+                esp_vfs_spiffs_register(&spiffs_conf);
+
+            if (mount_ret != ESP_OK) {
+                ESP_LOGE(OTA_TAG,
+                         "SPIFFS remount failed: %s",
+                         esp_err_to_name(mount_ret));
+                ret = mount_ret;
+            } else {
+                ESP_LOGI(OTA_TAG,
+                         "SPIFFS remounted successfully");
+            }
+
+        } else {
+            ESP_LOGE(OTA_TAG,
+                     "SPIFFS update failed after flash "
+                     "modification. Leaving filesystem "
+                     "unmounted to prevent further damage.");
         }
     }
 
-    ESP_LOGI(OTA_TAG, "Total written binary data length: %d", binary_file_length);
-
-    if (binary_file_length <= 0) {
-        ESP_LOGE(OTA_TAG, "No data written to SPIFFS partition");
-        err = ESP_FAIL;
-    } else if (content_length > 0 && binary_file_length != content_length) {
-        ESP_LOGE(OTA_TAG, "Incomplete SPIFFS image: expected %lld bytes, wrote %d bytes",
-                 content_length, binary_file_length);
-        err = ESP_FAIL;
-    } else {
-        ESP_LOGI(OTA_TAG, "SPIFFS partition update completed successfully");
-        err = ESP_OK;
-    }
-
-    esp_http_client_cleanup(client);
-    free(ca_cert);
-    return err;
+    return ret;
 }
+
 
 /**
  * @file: settings.c
