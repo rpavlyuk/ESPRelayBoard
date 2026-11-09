@@ -1,6 +1,10 @@
 [![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
 [![Made in Ukraine](https://img.shields.io/badge/Made_in-Ukraine-ffd700.svg?labelColor=0057b7)](https://stand-with-ukraine.pp.ua)
 
+> [!WARNING]
+> Update to version 1.2.3 using over the air (OTA) method may crash the system due to filesystem re-partitioning. Please, ensure you have physical access to the device before running the update.
+> Standard `idf.py flash` is enough to recover the system. Settings and configuration will not be affected, device reset is not required.
+
 # ESP32 Relay Board Firmware
 
 ## Purpose
