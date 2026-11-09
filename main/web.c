@@ -33,6 +33,7 @@
 #include "p_web_utils.h"
 #include "web_serve_static_files.h"
 #include "web_device_authorization.h"
+#include "system_ota_update.h"
 
 static httpd_handle_t server = NULL;
 

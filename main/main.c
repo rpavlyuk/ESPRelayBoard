@@ -17,7 +17,6 @@
 #include "wifi_provisioning/scheme_softap.h"
 #endif
 
-#include "non_volatile_storage.h"
 #if _DEVICE_ENABLE_STATUS_SYSINFO_HEAP_TRACE
 #include "esp_heap_caps.h"
 #include "esp_heap_trace.h"
@@ -32,6 +31,10 @@
 #include "status.h"
 #include "relay.h"
 #include "mqtt.h"
+
+// Components
+#include "system_ota_update.h"
+#include "non_volatile_storage.h"
 
 EventGroupHandle_t g_sys_events;
 

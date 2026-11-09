@@ -144,12 +144,6 @@
 #define S_DEFAULT_STATUS_MEMGUARD_MODE          MEMGRD_MODE_DISABLED       // 0 - Disabled, 1 - Warn, 2 - Restart
 #define S_DEFAULT_STATUS_MEMGUARD_THRESHOLD     65536    // 64k in bytes
 
-
-/**
- * Settings handlers and structures
- */
-static const char *OTA_TAG = "OTAUpdate";
-
 // The longest of all string settings, except CA certificates
 #define OLD_VALUE_STR_MAX_LEN    256
 
@@ -193,15 +187,6 @@ typedef struct {
  * Static settings
  */
 #define DO_OTA_STORAGE_UPDATE       true
-
-/** 
- * Initialize types
- */
-
-/* Structure to pass the OTA URL to the task */
-typedef struct {
-    char ota_url[OTA_UPDATE_URL_LENGTH];  // Adjust the size if needed
-} ota_update_param_t;
 
 /**
  * Routines
@@ -304,26 +289,6 @@ void init_filesystem();
  * @brief: Perform HTTP cleanup
  */
 static void http_cleanup(esp_http_client_handle_t client);
-
-/**
- * @brief: Call OTA update
- */
-esp_err_t perform_ota_update(const char *url);
-
-/**
- * @brief: Generate the storage update URL
- */
-esp_err_t generate_storage_update_url(const char *firmware_url, char **storage_url);
-
-/**
- * @brief: Download and update the SPIFFS partition
- */
-esp_err_t download_and_update_spiffs_partition(const char *url);
-
-/**
- * @brief: Check if the OTA partitions are valid
- */
-esp_err_t check_ota_partitions(void);
 
 /**
  * @brief: OTA update task
