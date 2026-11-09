@@ -10,6 +10,14 @@
 // Sync the CA certificate to SPIFFS
 #define DO_SYNC_CA_CERT_TO_SPIFFS   false
 
+#if !defined(CA_CERT_PATH_MQTTS)
+#define CA_CERT_PATH_MQTTS  "/spiffs/ca-mqtts.crt"
+#endif
+
+#if !defined(CA_CERT_PATH_HTTPS)
+#define CA_CERT_PATH_HTTPS  "/spiffs/ca-https.crt"
+#endif
+
 static const char *CRT_MGR_TAG = "Certificate Manager";
 
 /* Routines */
