@@ -121,5 +121,6 @@ spiffs/static-bootstrap.bundle.min.js
 spiffs/static-bootstrap.min.css
 spiffs/static-docsearch.min.css
 spiffs/static-jquery-4.0.0.min.js
+spiffs/static-jquery.min.js
 spiffs/static-wifi.js
 spiffs/wifi.html
