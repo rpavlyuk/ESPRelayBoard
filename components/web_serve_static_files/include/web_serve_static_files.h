@@ -19,6 +19,9 @@
 #if !defined(SCRATCH_BUFSIZE)
 #define SCRATCH_BUFSIZE  8192
 #endif
+#if !defined(ENABLE_STATIC_NOCACHE_HEADER)
+#define ENABLE_STATIC_NOCACHE_HEADER  false
+#endif
 
 struct http_file_server_data {
     /* Base path of file storage */

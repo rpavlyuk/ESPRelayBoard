@@ -17,7 +17,7 @@ configure_file(
     COPYONLY
 )
 configure_file(
-    "${CMAKE_CURRENT_LIST_DIR}/spiffs/static-jquery-4.0.0.min.js"
-    "${PROJECT_DIR}/spiffs/static-jquery-4.0.0.min.js"
+    "${CMAKE_CURRENT_LIST_DIR}/spiffs/static-jquery.min.js"
+    "${PROJECT_DIR}/spiffs/static-jquery.min.js"
     COPYONLY
 )

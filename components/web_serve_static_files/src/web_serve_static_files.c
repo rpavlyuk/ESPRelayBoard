@@ -91,7 +91,7 @@ esp_err_t http_static_stream_handler(httpd_req_t *req) {
 #if ENABLE_STATIC_NOCACHE_HEADER
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
 #else
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600"); // optional
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600, must-revalidate"); // optional
 #endif
 
     // Now we have two ways to stream: line-by-line (with placeholder replacement) or chunked (raw). 
