@@ -12,7 +12,7 @@ This project provides firmware for an ESP32-based relay boards which you can fin
 
 The device supports two types of units:
 * **Relay**: The board controls an actuator which is controlled by HIGH/LOW logical states
-* **[Dry Contact Sensor](https://www.electrical4u.com/dry-contacts/)**: The board monitors contact state between selected GPIO(s) and GND, providing information either contact is closed or open
+* **[Dry Contact Sensor](https://www.electrical4u.com/dry-contacts/)**: The board monitors contact state between selected GPIO(s) and GND, providing information either contact is closed or open. A compact, optically isolated dry-contact sensor board specially designed for this project is available as [ESPDryContactSensor](https://github.com/rpavlyuk/ESPDryContactSensor) project.
 
 ## Table of Contents
 1. [Purpose](#purpose)
@@ -97,8 +97,10 @@ This is just a default (sample) wiring and do not worry if you'd like to use oth
 > [!NOTE]
 > But remember one thing: not every pin from ESP32 board/module can be used to control relays in this project, because some of those are reserved for system purposes and can make the device very unstable. Make sure that pins you'd like to use are in this list:
 ```
-{4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39}
+{4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39}
 ```
+
+Additionally, you can connect dry contact sensors (e.g., [ESPDryContactSensor](https://github.com/rpavlyuk/ESPDryContactSensor)) to any of the remaining digital GPIO pin. For example, `IO06`.
 
 ## Building and Flashing
 1. **Setup the ESP-IDF Environment**:
